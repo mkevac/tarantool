@@ -1,5 +1,5 @@
-#ifndef TARANTOOL_SCOPED_GUARD_H_INCLUDED
-#define TARANTOOL_SCOPED_GUARD_H_INCLUDED
+#ifndef TARANTOOL_JS_LIB_BOX_SPACE_H_INCLUDED
+#define TARANTOOL_JS_LIB_BOX_SPACE_H_INCLUDED
 
 /*
  * Redistribution and use in source and binary forms, with or
@@ -30,50 +30,23 @@
  * SUCH DAMAGE.
  */
 
-#include "object.h"
 
-#include <stdlib.h>
+#include "../../js/js.h"
 
-template <typename Functor>
-class ScopedGuard {
-public:
-	explicit ScopedGuard(const Functor& fun)
-		: m_fun(fun), m_active(true) {
-		/* nothing */
-	}
+struct space;
 
-	ScopedGuard(ScopedGuard&& guard)
-		: m_fun(guard.m_fun), m_active(true) {
-		guard.m_active = false;
-		abort();
-	}
+namespace js {
+namespace box {
+namespace space {
 
-	~ScopedGuard()
-	{
-		if (!m_active)
-			return;
+v8::Local<v8::Object>
+Exports();
 
-		m_fun();
-	}
+v8::Local<v8::Object>
+NewInstance(v8::Local<v8::Function> space_fun, struct space *space);
 
-	void
-	reset() {
-		m_active = false;
-	}
+} /* namespace space */
+} /* namespace box */
+} /* namespace js */
 
-private:
-	explicit ScopedGuard(const ScopedGuard&) = delete;
-	ScopedGuard& operator=(const ScopedGuard&) = delete;
-
-	Functor m_fun;
-	bool m_active;
-};
-
-template <typename Functor>
-inline ScopedGuard<Functor>
-make_scoped_guard(Functor guard)
-{
-	return ScopedGuard<Functor>(guard);
-}
-
-#endif /* TARANTOOL_SCOPED_GUARD_H_INCLUDED */
+#endif /* TARANTOOL_JS_LIB_BOX_SPACE_H_INCLUDED */

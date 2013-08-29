@@ -39,12 +39,18 @@ namespace tuple {
 
 namespace { /* anonymous */
 
+enum {
+	INTERNAL_TUPLE = 0,
+	INTERNAL_ARRAY_BUFFER = 1,
+	INTERNAL_MAX = 2
+};
+
 inline struct tuple *
 Unwrap(v8::Local<v8::Object> thiz)
 {
-	assert(thiz->InternalFieldCount() > 0);
+	assert(thiz->InternalFieldCount() > INTERNAL_TUPLE);
 	struct tuple *tuple = (struct tuple *)
-		thiz-> GetAlignedPointerFromInternalField(0);
+		thiz-> GetAlignedPointerFromInternalField(INTERNAL_TUPLE);
 	assert(tuple != NULL);
 	return tuple;
 }
@@ -70,14 +76,14 @@ GC(v8::Isolate* isolate, v8::Persistent<v8::Object>* value, struct tuple *tuple)
 void
 Create(v8::Local<v8::Object> thiz, struct tuple *tuple)
 {
-	assert(thiz->InternalFieldCount() > 0);
-	thiz->SetAlignedPointerInInternalField(0, tuple);
+	assert(thiz->InternalFieldCount() > INTERNAL_TUPLE);
+	thiz->SetAlignedPointerInInternalField(INTERNAL_TUPLE, tuple);
 	tuple_ref(tuple, 1);
 
 	/* Create a ArrayBuffer for fields */
 	v8::Local<v8::ArrayBuffer> buf = v8::ArrayBuffer::New(
 				tuple->data, tuple->bsize);
-	thiz->SetInternalField(1, buf);
+	thiz->SetInternalField(INTERNAL_ARRAY_BUFFER, buf);
 
 	/* Hint v8 GC about the fact that a litle bit more memory is used. */
 	v8::V8::AdjustAmountOfExternalAllocatedMemory(
@@ -173,9 +179,9 @@ Get(uint32_t index, const v8::PropertyCallbackInfo<v8::Value>& args)
 		return;
 	}
 
-	assert(args.Holder()->InternalFieldCount() > 1);
-	v8::Local<v8::ArrayBuffer> buf = args.Holder()->GetInternalField(1).
-			As<v8::ArrayBuffer>();
+	assert(args.Holder()->InternalFieldCount() > INTERNAL_ARRAY_BUFFER);
+	v8::Local<v8::ArrayBuffer> buf = args.Holder()->
+		GetInternalField(INTERNAL_ARRAY_BUFFER).As<v8::ArrayBuffer>();
 	assert(!buf.IsEmpty());
 
 	uint32_t field_len = 0;
@@ -197,7 +203,7 @@ Get(uint32_t index, const v8::PropertyCallbackInfo<v8::Value>& args)
 void
 CreateTemplate(v8::Local<v8::FunctionTemplate> tmpl)
 {
-	tmpl->InstanceTemplate()->SetInternalFieldCount(2);
+	tmpl->InstanceTemplate()->SetInternalFieldCount(INTERNAL_MAX);
 
 	tmpl->SetClassName(v8::String::NewSymbol("Box.Tuple"));
 	tmpl->InstanceTemplate()->SetAccessor(v8::String::NewSymbol("arity"),

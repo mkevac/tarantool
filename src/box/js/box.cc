@@ -29,16 +29,23 @@
 
 #include "box.h"
 #include "box_tuple.h"
+#include "box_space.h"
+#include "box_index.h"
+#include "box_iterator.h"
+
+#include "../../js/require.h"
 
 #include "pickle.h"
 #include "fiber.h"
 #include "scoped_guard.h"
 
+#include <box/box.h>
+
 #include "../request.h"
 #include "../port.h"
 #include "../tuple.h"
-
-#include <box/box.h>
+#include "../space.h"
+#include "../index.h"
 
 extern char box_js[];
 
@@ -58,6 +65,9 @@ BerSizeOf(v8::Local<v8::Array> tuple)
 			field_len = field.As<v8::String>()->Length();
 		} else if (field->IsArrayBuffer()) {
 			field_len = field.As<v8::ArrayBuffer>()->ByteLength();
+		} else if (field->IsArrayBufferView()) {
+			auto v = field.As<v8::ArrayBufferView>();
+			field_len = v->ByteLength();
 		} else {
 			v8::ThrowException(v8::Exception::TypeError(
 				v8::String::New(
@@ -85,10 +95,13 @@ BerPack(char *data, v8::Local<v8::Array> tuple)
 			v8::String::Utf8Value field_utf8(field.As<v8::String>());
 			b = pack_lstr(b, *field_utf8, field_utf8.length());
 		} else if (field->IsArrayBuffer()) {
-			v8::Local<v8::ArrayBuffer> field_buffer =
-					field.As<v8::ArrayBuffer>();
-			b = pack_lstr(b, field_buffer->BaseAddress(),
-				      field_buffer->ByteLength());
+			auto a = field.As<v8::ArrayBuffer>();
+			/* TODO: ArrayBuffer does not have BaseAddress prop */
+			auto v = v8::Int8Array::New(a, 0, a->ByteLength());
+			b = pack_lstr(b, v->BaseAddress(), v->ByteLength());
+		} else if (field->IsArrayBufferView()) {
+			auto v = field.As<v8::ArrayBufferView>();
+			b = pack_lstr(b, v->BaseAddress(), v->ByteLength());
 		} else {
 			assert(false);
 		}
@@ -388,6 +401,16 @@ DeleteMethod(const v8::FunctionCallbackInfo<v8::Value>& args)
 	JS_END();
 }
 
+v8::Local<v8::Object>
+GetBox()
+{
+	v8::HandleScope handle_scope;
+	v8::Local<v8::Object> require = JS::GetCurrent()->GetRequire();
+	v8::Local<v8::Object> box = js::require::CacheGet(require,
+		v8::String::NewSymbol("box"));
+	return handle_scope.Close(box);
+}
+
 } /* namespace (anonymous) */
 
 v8::Handle<v8::FunctionTemplate>
@@ -407,6 +430,10 @@ GetTemplate()
 
 	tmpl->InstanceTemplate()->SetInternalFieldCount(1);
 	tmpl->InstanceTemplate()->Set("Tuple", tuple::Exports());
+	tmpl->InstanceTemplate()->Set("Space", space::Exports());
+	tmpl->InstanceTemplate()->Set("Index", index::Exports());
+	tmpl->InstanceTemplate()->Set("Iterator", iterator::Exports());
+	tmpl->InstanceTemplate()->Set("space", v8::Array::New());
 	tmpl->InstanceTemplate()->Set("select",
 		v8::FunctionTemplate::New(SelectMethod));
 	tmpl->InstanceTemplate()->Set("insert",
@@ -435,6 +462,68 @@ Exports()
 	v8::Local<v8::String> filename = v8::String::New("box.js");
 	EvalInNewContext(source, filename, globals);
 	return handle_scope.Close(globals->Get(exports_key)->ToObject());
+}
+
+static void
+OnSpaceNewCallback(struct space *space, void *udata)
+{
+	(void) udata;
+	OnSpaceNew(space);
+}
+
+void
+UpdateConfiguration(void)
+{
+	space_foreach(OnSpaceNewCallback, NULL);
+}
+
+void
+OnSpaceNew(struct space *space)
+{
+	/* Do not use JS in scheduler thread */
+	if (fiber_self()->fid == 1)
+		return;
+
+	v8::Local<v8::Object> box = GetBox();
+	if (box.IsEmpty())
+		return;
+
+	v8::Local<v8::String> spaces_key = v8::String::NewSymbol("space");
+	v8::Local<v8::Value> spaces_raw = box->Get(spaces_key);
+
+	v8::Local<v8::Array> spaces;
+	if (spaces_raw.IsEmpty() || !spaces_raw->IsArray()) {
+		spaces = v8::Array::New();
+		box->Set(spaces_key, spaces);
+	} else {
+		spaces = spaces_raw.As<v8::Array>();
+	}
+
+	v8::Local<v8::Function> space_fun = box::space::Exports().As<v8::Function>();
+	assert(!space_fun.IsEmpty());
+
+	v8::Local<v8::Object> js_space = box::space::NewInstance(space_fun, space);
+	assert (!js_space.IsEmpty());
+
+	spaces->Set(space->def.id, js_space);
+}
+
+void
+OnSpaceDelete(struct space *space)
+{
+	if (fiber_self()->fid == 1)
+		return;
+
+	v8::Local<v8::Object> box = GetBox();
+	if (box.IsEmpty())
+		return;
+
+	v8::Local<v8::Value> spaces_raw = box->Get(v8::String::NewSymbol("space"));
+	if (spaces_raw.IsEmpty() || !spaces_raw->IsArray())
+		return;
+
+	v8::Local<v8::Array> spaces = spaces_raw.As<v8::Array>();
+	spaces->Delete(space->def.id);
 }
 
 } /* namespace box */

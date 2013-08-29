@@ -49,7 +49,7 @@ v8::Local<v8::Object>
 NewInstance(v8::Local<v8::Function> constructor, struct tuple *tuple);
 
 } /* namespace tuple */
-} /* namespace stub */
+} /* namespace box */
 } /* namespace js */
 
 #endif /* TARANTOOL_JS_LIB_BOX_TUPLE_H_INCLUDED */

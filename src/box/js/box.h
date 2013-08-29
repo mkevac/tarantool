@@ -36,6 +36,8 @@
  */
 #include "../../js/js.h"
 
+struct space;
+
 namespace js {
 namespace box {
 
@@ -47,6 +49,15 @@ BerSizeOf(v8::Local<v8::Array> tuple);
 
 char *
 BerPack(char *data, v8::Local<v8::Array> tuple);
+
+void
+UpdateConfiguration(void);
+
+void
+OnSpaceNew(struct space *space);
+
+void
+OnSpaceDelete(struct space *space);
 
 } /* namespace box */
 } /* namespace js */

@@ -15,18 +15,18 @@ target_link_libraries(js ${LIBV8_LIBRARIES})
 ## Modules
 ##
 
-lua_source(js_console_sources console.js)
+lua_source(js_console_js_sources console.js)
 
 # Mod Console
 set(js_console_sources
-    ${js_console_sources}
+    ${js_console_js_sources}
     console.cc
 )
 
 add_custom_target(generate_console_js_sources
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/src/box
-    DEPENDS ${js_console_sources})
-set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${js_console_sources})
+    DEPENDS ${js_console_js_sources})
+set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${js_console_js_sources})
 
 set_source_files_compile_flags(${js_console_sources})
 add_library(js_console STATIC ${js_console_sources})

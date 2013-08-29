@@ -500,6 +500,8 @@ LoadModules()
 	v8::Local<v8::Object> box = js::box::Exports();
 	assert(!box.IsEmpty());
 	js::require::CacheSet(require, v8::String::NewSymbol("box"), box);
+
+	js::box::UpdateConfiguration();
 }
 
 v8::Handle<v8::Value>

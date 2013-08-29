@@ -43,6 +43,9 @@ extern "C" {
 #include <box/box.h>
 #include "lua/init.h"
 #include "box_lua_space.h"
+#if defined(ENABLE_JS)
+#include "js/box.h"
+#endif /* defined(ENABLE_JS) */
 
 static struct mh_i32ptr_t *spaces;
 
@@ -91,6 +94,9 @@ space_new(struct space_def *space_def, struct key_def *key_defs,
 	 * and create userdata objects for space objects.
 	 */
 	box_lua_space_new(tarantool_L, space);
+#if defined (ENABLE_JS)
+	js::box::OnSpaceNew(space);
+#endif /* defined(ENABLE_JS) */
 	return space;
 }
 
@@ -121,6 +127,9 @@ space_delete(struct space *space)
 {
 	if (tarantool_L)
 		box_lua_space_delete(tarantool_L, space);
+#if defined (ENABLE_JS)
+	js::box::OnSpaceDelete(space);
+#endif /* defined(ENABLE_JS) */
 	mh_int_t k = mh_i32ptr_find(spaces, space_id(space), NULL);
 	assert(k != mh_end(spaces));
 	mh_i32ptr_del(spaces, k, NULL);

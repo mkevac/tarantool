@@ -7,6 +7,9 @@ endif (ENABLE_JS)
 set(js_box_sources
     box.cc
     box_tuple.cc
+    box_space.cc
+    box_index.cc
+    box_iterator.cc
     ${js_sources}
 )
 
