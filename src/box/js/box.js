@@ -1,43 +1,46 @@
-/* Alter 'exports' object here */
+/* Alter 'Box' object here */
 
-(function() {
-    var lua = require('lua')
-    /* Fallback to Lua for these bindings */
-    exports.cfg = lua.box.cfg
-    exports.info = lua.box.info
-    exports.slab = lua.box.slab
-    exports.stat = lua.box.stat
-})();
+Box = exports
+Space = Box.prototype.Space
+Index = Box.prototype.Index
+Iterator = Box.prototype.Iterator
 
-Object.defineProperty(exports.Space.prototype, "length", {
-    get: function() { return this.index[0].length },
-    enumerable: true
+var lua = require('lua')
+/* Fallback to Lua for these bindings */
+Box.prototype.cfg = lua.box.cfg
+Box.prototype.info = lua.box.info
+Box.prototype.slab = lua.box.slab
+Box.prototype.stat = lua.box.stat
+
+Object.defineProperty(Space.prototype, "length", {
+     get: function() { return this.index[0].length },
+     enumerable: true
 });
 
-exports.Space.prototype.select = function(index, key, offset, limit) {
-    return exports.select(this.id, index, key, offset, limit)
+Space.prototype.select = function(index, key, offset, limit) {
+    return Box.select(this.id, index, key, offset, limit)
 }
 
-exports.Space.prototype.insert = function(tuple, return_tuple) {
-    return exports.insert(this.id, tuple, return_tuple)
+Space.prototype.insert = function(tuple, return_tuple) {
+    return Box.insert(this.id, tuple, return_tuple)
 }
 
-exports.Space.prototype.replace = function(tuple, return_tuple) {
-    return exports.replace(this.id, tuple, return_tuple)
+Space.prototype.replace = function(tuple, return_tuple) {
+    return Box.replace(this.id, tuple, return_tuple)
 }
 
-exports.Space.prototype.store = function(tuple, return_tuple) {
-    return exports.store(this.id, tuple, return_tuple)
+Space.prototype.store = function(tuple, return_tuple) {
+    return Box.store(this.id, tuple, return_tuple)
 }
 
-exports.Space.prototype.delete = function(key, return_tuple) {
-    return exports.delete(this.id, key, return_tuple)
+Space.prototype.delete = function(key, return_tuple) {
+    return Box.delete(this.id, key, return_tuple)
 }
 
-exports.Space.prototype.truncate = function() {
+Space.prototype.truncate = function() {
     var pk = this.index[0]
     while (pk.length > 0) {
-        var it = new exports.Iterator(this.id, pk.id, exports.Iterator.ALL);
+        var it = new Box.prototype.Iterator(this.id, pk.id, Box.Iterator.ALL);
         while (tuple = it()) {
             var key = [];
             for (var i = 0; i < pk.key_field.length; i++) {
@@ -48,18 +51,18 @@ exports.Space.prototype.truncate = function() {
     }
 }
 
-exports.truncate = function(space) {
-    return exports.space[space].truncate()
+Box.prototype.truncate = function(space) {
+    return Box.space[space].truncate()
 }
 
-exports.Space.prototype.iterator = function(index, type, key) {
-    return new exports.Iterator(this.id, index, type, key)
+Space.prototype.iterator = function(index, type, key) {
+    return new Box.Iterator(this.id, index, type, key)
 }
 
-exports.Index.prototype.iterator = function(type, key) {
-    return new exports.Iterator(this.space_id, this.id, type, key)
+exports.prototype.Index.prototype.iterator = function(type, key) {
+    return new Box.Iterator(this.space_id, this.id, type, key)
 }
 
-exports.iterator = function(space, index, type, key) {
-    return new exports.Iterator(space, index, type, key)
+exports.prototype.iterator = function(space, index, type, key) {
+    return new Box.Iterator(space, index, type, key)
 }

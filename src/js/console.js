@@ -57,46 +57,46 @@ function trace() {
     return ret;
 }
 
-exports.trace = trace
+exports.prototype.trace = trace
 
-exports.panic = function() {
+exports.prototype.panic = function() {
     var frame = trace()[1]
     return this.say(this.say.FATAL, frame.fileName, frame.lineNumber,
                     format.apply(this, arguments));
 }
 
-exports.error = function() {
+exports.prototype.error = function() {
     var frame = trace()[1]
     return this.say(this.say.ERROR, frame.fileName, frame.lineNumber,
                     format.apply(this, arguments));
 }
 
-exports.crit = function() {
+exports.prototype.crit = function() {
     var frame = trace()[1]
     return this.say(this.say.CRIT, frame.fileName, frame.lineNumber,
                     format.apply(this, arguments));
 
 }
 
-exports.warn = function() {
+exports.prototype.warn = function() {
     var frame = trace()[1]
     return this.say(this.say.WARN, frame.fileName, frame.lineNumber,
                     format.apply(this, arguments));
 
 }
 
-exports.info = function() {
+exports.prototype.info = function() {
     var frame = trace()[1]
     return this.say(this.say.INFO, frame.fileName, frame.lineNumber,
                     format.apply(this, arguments));
 
 }
 
-exports.debug = function() {
+exports.prototype.debug = function() {
     var frame = trace()[1]
     return this.say(this.say.DEBUG, frame.fileName, frame.lineNumber,
                     format.apply(this, arguments));
 
 }
 
-exports.log = exports.info
+exports.prototype.log = exports.prototype.info

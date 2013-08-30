@@ -429,20 +429,20 @@ GetTemplate()
 	tmpl->SetClassName(v8::String::NewSymbol("Box"));
 
 	tmpl->InstanceTemplate()->SetInternalFieldCount(1);
-	tmpl->InstanceTemplate()->Set("Tuple", tuple::Exports());
-	tmpl->InstanceTemplate()->Set("Space", space::Exports());
-	tmpl->InstanceTemplate()->Set("Index", index::Exports());
-	tmpl->InstanceTemplate()->Set("Iterator", iterator::Exports());
-	tmpl->InstanceTemplate()->Set("space", v8::Array::New());
-	tmpl->InstanceTemplate()->Set("select",
+	tmpl->PrototypeTemplate()->Set("Tuple", tuple::Exports());
+	tmpl->PrototypeTemplate()->Set("Space", space::Exports());
+	tmpl->PrototypeTemplate()->Set("Index", index::Exports());
+	tmpl->PrototypeTemplate()->Set("Iterator", iterator::Exports());
+	tmpl->PrototypeTemplate()->Set("space", v8::Array::New());
+	tmpl->PrototypeTemplate()->Set("select",
 		v8::FunctionTemplate::New(SelectMethod));
-	tmpl->InstanceTemplate()->Set("insert",
+	tmpl->PrototypeTemplate()->Set("insert",
 		v8::FunctionTemplate::New(InsertMethod));
-	tmpl->InstanceTemplate()->Set("store",
+	tmpl->PrototypeTemplate()->Set("store",
 		v8::FunctionTemplate::New(StoreMethod));
-	tmpl->InstanceTemplate()->Set("replace",
+	tmpl->PrototypeTemplate()->Set("replace",
 		v8::FunctionTemplate::New(ReplaceMethod));
-	tmpl->InstanceTemplate()->Set("delete",
+	tmpl->PrototypeTemplate()->Set("delete",
 		v8::FunctionTemplate::New(DeleteMethod));
 
 	js->TemplateCacheSet(tmpl_key, tmpl);
@@ -457,11 +457,14 @@ Exports()
 	/* Load JavaScript source to alter native object */
 	v8::Local<v8::String> exports_key = v8::String::NewSymbol("exports");
 	v8::Local<v8::Object> globals = v8::Object::New();
-	globals->Set(exports_key, GetTemplate()->GetFunction()->NewInstance());
+	globals->Set(exports_key, GetTemplate()->GetFunction());
 	v8::Local<v8::String> source = v8::String::New(box_js);
 	v8::Local<v8::String> filename = v8::String::New("box.js");
 	EvalInNewContext(source, filename, globals);
-	return handle_scope.Close(globals->Get(exports_key)->ToObject());
+	v8::Local<v8::Value> exports = globals->Get(exports_key);
+	assert (exports->IsFunction());
+	v8::Local<v8::Function> box_fun = exports.As<v8::Function>();
+	return handle_scope.Close(box_fun->NewInstance());
 }
 
 static void
