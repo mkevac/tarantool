@@ -1,6 +1,14 @@
 #ifdef ENABLE_DTRACE
 #include "ev_dtrace.h"
+#ifdef ENABLE_DTRACE_BUILTIN
+#define	EV_TICK_START(flags) TARANTOOL_TICK_START(flags)
+#define	EV_TICK_START_ENABLED() TARANTOOL_TICK_START_ENABLED()
+#define	EV_TICK_STOP(flags) TARANTOOL_TICK_STOP(flags)
+#define	EV_TICK_STOP_ENABLED() TARANTOOL_TICK_STOP_ENABLED()
+#endif
 #else
-#define EV_TICK_START(flags)
-#define EV_TICK_STOP(flags)
+#define	EV_TICK_START(flags)
+#define	EV_TICK_START_ENABLED() (0)
+#define	EV_TICK_STOP(flags)
+#define	EV_TICK_STOP_ENABLED() (0)
 #endif

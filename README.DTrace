@@ -11,7 +11,12 @@ DTrace tested and works on:
 
 For enable DTrace use an option -DENABLE_DTRACE=ON in cmake.
 
-USDT probes at realtime only works on FreeBSD and Mac OS X option to enable -DENABLE_DTRACE_USDT=ON.
+USDT probes at realtime only works on FreeBSD and Mac OS X option to enable:
+ -DENABLE_DTRACE_USDT=ON
+
+Implementation DTrace on FreeBSD and Linux has a bug with many providers at one module. This is option enable tarantool provider for all libs instead libs providers:
+ -DENABLE_DTRACE_BUILTIN=ON
+
 
 Example commands to build:
 

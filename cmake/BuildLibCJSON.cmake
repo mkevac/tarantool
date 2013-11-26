@@ -7,6 +7,13 @@ macro(libcjson_build)
 
     add_library(cjson STATIC ${cjson_src})
 
+    if (ENABLE_DTRACE)
+        execute_process(COMMAND ${CMAKE_COMMAND} -E copy
+                  ${PROJECT_SOURCE_DIR}/extra/dtrace/cjson_external.h
+                  ${PROJECT_SOURCE_DIR}/third_party/lua-cjson/external.h
+        )
+    endif()
+
     if (ENABLE_DTRACE AND NOT TARGET_OS_DARWIN)
         set(cjson_obj_dir ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/cjson.dir/third_party/lua-cjson)
         set(dtrace_obj ${DTRACE_O_DIR}/cjson_dtrace.o)
