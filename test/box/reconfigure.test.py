@@ -40,6 +40,14 @@ admin("box.snapshot()")
 server.reconfigure("box/tarantool_good.cfg")
 admin("box.insert(0, 3, 'tuple3')")
 admin("box.snapshot()")
+
+print """#
+# A test case for https://github.com/tarantool/tarantool/issues/112:
+# Tarantool crashes with SIGSEGV during reload configuration
+#"""
+server.reconfigure("box/tarantool_wo_cpt.cfg")
+server.reconfigure("box/tarantool_with_cpt.cfg")
+
 # Cleanup
 server.reconfigure(self.suite_ini["config"])
 admin("box.space[0]:drop()")

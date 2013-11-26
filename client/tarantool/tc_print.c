@@ -27,6 +27,7 @@
  * SUCH DAMAGE.
  */
 #include <stdlib.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -37,10 +38,11 @@
 #include <unistd.h>
 #include <errno.h>
 
-
+#if 0
 #include <connector/c/include/tarantool/tnt.h>
 #include <connector/c/include/tarantool/tnt_xlog.h>
 #include <connector/c/include/tarantool/tnt_rpl.h>
+#endif
 
 #include "client/tarantool/tc_opt.h"
 #include "client/tarantool/tc_admin.h"
@@ -51,54 +53,24 @@
 extern struct tc tc;
 
 /*##################### Base printing functions #####################*/
-
-void tc_print_tee(char *buf, size_t size) {
-	if (tc.tee_fd == -1)
-		return;
-	size_t off = 0;
-	do {
-		ssize_t r = write(tc.tee_fd, buf + off, size - off);
-		if (r == -1) {
-			printf("error: read(): %s\n", strerror(errno));
-			return;
-		}
-		off += r;
-	} while (off != size);
-}
-
-void tc_print_cmd2tee(char *prompt, char *cmd, int size) {
-	if (tc.tee_fd == -1)
-		return;
-	if (prompt)
-		tc_print_tee(prompt, strlen(prompt));
-	tc_print_tee(cmd, size);
-	tc_print_tee("\n", 1);
-}
-
 void tc_print_buf(char *buf, size_t size) {
 	printf("%-.*s", (int)size, buf);
 	fflush(stdout);
-	tc_print_tee(buf, size);
 }
 
 void tc_printf(char *fmt, ...) {
+	char *str;
 	va_list args;
 	va_start(args, fmt);
-	if (tc.tee_fd == -1) {
-		vprintf(fmt, args);
-		va_end(args);
-		return;
-	}
-	char *buf;
-	int size = vasprintf(&buf, fmt, args);
+	ssize_t str_len = vasprintf(&str, fmt, args);
+	if (str_len == -1)
+		tc_error("Error in vasprintf - %d", errno);
+	ssize_t stat = write(tc.pager_fd, str, str_len);
+	if (stat == -1)
+		tc_error("Can't write into pager - %d", errno);
 	va_end(args);
-	if (size >= 0) {
-		tc_print_buf(buf, size);
-		free(buf);
-	}
+	return;
 }
-
-/*##################### string functions #####################*/
 
 static int tc_str_valid(char *data, uint32_t size) {
 	int length;
@@ -184,8 +156,7 @@ void tc_print_string(char *data, uint32_t size, char lua)
 	}
 }
 
-/*##################### Tuple and Fields #####################*/
-/* tarantool */
+#if 0
 
 void tc_print_fields(struct tnt_tuple *tu)
 {
@@ -232,8 +203,6 @@ void tc_print_list(struct tnt_list *l)
 	tnt_iter_free(&it);
 }
 
-/* lua */
-
 void tc_print_lua_field(char *data, uint32_t size, char string)
 {
 	if (string)
@@ -275,3 +244,4 @@ void tc_print_lua_tuple(struct tnt_tuple *tu)
 	tc_print_lua_fields(tu);
 	tc_printf("}");
 }
+#endif

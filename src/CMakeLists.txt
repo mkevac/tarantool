@@ -85,6 +85,8 @@ set (common_sources
      lua/session.cc
      lua/cjson.cc
      lua/yaml.cc
+     lua/msgpack.cc
+     lua/utils.c
      ${lua_sources}
      ${bin_sources}
 )
@@ -135,18 +137,13 @@ if (TARGET_OS_FREEBSD AND NOT TARGET_OS_DEBIAN_FREEBSD)
 endif()
 
 if (ENABLE_BACKTRACE AND HAVE_BFD)
-    set (common_libraries ${common_libraries} bfd)
+    find_package (ZLIB)
+    set (common_libraries ${common_libraries} bfd ${ZLIB_LIBRARIES})
     if (NOT TARGET_OS_DARWIN)
         set (common_libraries ${common_libraries} iberty)
     endif()
-    if (ENABLE_STATIC OR TARGET_OS_FREEBSD)
-        include (FindZLIB)
-        set (common_libraries ${common_libraries} ${ZLIB_LIBRARIES})
-    endif()
-    if (TARGET_OS_FREEBSD)
-    	if (NOT TARGET_OS_DEBIAN_FREEBSD)
-	        set (common_libraries ${common_libraries} iconv)
-        endif()
+    if (TARGET_OS_FREEBSD AND NOT TARGET_OS_DEBIAN_FREEBSD)
+        set (common_libraries ${common_libraries} iconv)
     endif()
 endif()
 
@@ -209,7 +206,7 @@ function(tarantool_module mod)
     add_library(lt${mod} STATIC ${recompiled_sources})
     add_dependencies(lt${mod} generate_headers generate_admin_cc build_bundled_libs)
 
-    target_link_libraries(tarantool_${mod} lt${mod} ${common_libraries})
+    target_link_libraries(tarantool_${mod} lt${mod} ${common_libraries} -rdynamic)
 
     if (ENABLE_STATIC)
         set_target_properties(tarantool_${mod} PROPERTIES

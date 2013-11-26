@@ -81,7 +81,6 @@ lua_check_pgconn(struct lua_State *L, int index)
 	return conn;
 }
 
-
 /** do execute request (is run in the other thread) */
 static ssize_t
 pg_exec(va_list ap)
@@ -210,14 +209,19 @@ lua_pg_execute(struct lua_State *L)
 	Oid *paramTypes = NULL;
 
 	if (count > 0) {
-		paramValues = (typeof(paramValues))
-			alloca( count * sizeof(*paramValues) );
-		paramLengths = (typeof(paramLengths))
-			alloca( count * sizeof(*paramLengths) );
-		paramFormats = (typeof(paramFormats))
-			alloca( count * sizeof(*paramFormats) );
-		paramTypes = (typeof(paramTypes))
-			alloca( count * sizeof(*paramTypes) );
+		/* Allocate memory for params using lua_newuserdata */
+		char *buf = (char *) lua_newuserdata(L, count *
+			(sizeof(*paramValues) + sizeof(*paramLengths) +
+			 sizeof(*paramFormats) + sizeof(*paramTypes)));
+
+		paramValues = (const char **) buf;
+		buf += count * sizeof(*paramValues);
+		paramLengths = (int *) buf;
+		buf += count * sizeof(*paramLengths);
+		paramFormats = (int *) buf;
+		buf += count * sizeof(*paramFormats);
+		paramTypes = (Oid *) buf;
+		buf += count * sizeof(*paramTypes);
 
 		for(int i = 0, idx = 3; i < count; i++, idx++) {
 			if (lua_isnil(L, idx)) {
@@ -288,6 +292,7 @@ lua_pg_execute(struct lua_State *L)
 	auto scope_guard = make_scoped_guard([&]{
 		PQclear(res);
 	});
+	lua_settop(L, 0);
 	return lua_push_pgres(L, res);
 }
 
@@ -336,7 +341,11 @@ self_field(struct lua_State *L, const char *name, int index)
 	if (index < 0)
 		index--;
 	lua_rawget(L, index);
-	const char *res = lua_tostring(L, -1);
+	const char *res;
+	if (lua_isnil(L, -1))
+	    res = NULL;
+	else
+	    res = lua_tostring(L, -1);
 	lua_pop(L, 1);
 	return res;
 }
@@ -396,24 +405,38 @@ lua_pg_quote_ident(struct lua_State *L)
 static int
 lbox_net_pg_connect(struct lua_State *L)
 {
+	const char *host = self_field(L, "host", 1);
+	const char *port = self_field(L, "port", 1);
+	const char *user = self_field(L, "user", 1);
+	const char *pass = self_field(L, "password", 1);
+	const char *db   = self_field(L, "db", 1);
+
+
+	if (!host || (!port) || (!user) || (!pass) || (!db)) {
+		luaL_error(L,
+			 "Usage: box.net.sql.connect"
+			 "('pg', host, port, user, password, db, ...)"
+		);
+	}
+
 	PGconn     *conn = NULL;
 
 	luaL_Buffer b;
 	luaL_buffinit(L, &b);
 	luaL_addstring(&b, "host='");
-	luaL_addstring(&b, self_field(L, "host", 1));
+	luaL_addstring(&b, host);
 
 	luaL_addstring(&b, "' port='");
-	luaL_addstring(&b, self_field(L, "port", 1));
+	luaL_addstring(&b, port);
 
 	luaL_addstring(&b, "' user='");
-	luaL_addstring(&b, self_field(L, "user", 1));
+	luaL_addstring(&b, user);
 
 	luaL_addstring(&b, "' password='");
-	luaL_addstring(&b, self_field(L, "password", 1));
+	luaL_addstring(&b, pass);
 
 	luaL_addstring(&b, "' dbname='");
-	luaL_addstring(&b, self_field(L, "db", 1));
+	luaL_addstring(&b, db);
 
 	luaL_addchar(&b, '\'');
 	luaL_pushresult(&b);

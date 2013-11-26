@@ -37,7 +37,9 @@ find_program(POD2MAN pod2man)
 #
 set (TARANTOOL_PRODUCT "box")
 set (TARANTOOL_MODULES "box")
-set (TARANTOOL_CLIENTS "tarancheck" "tarantar")
+# Disable tarancheck and tarantar for 1.6
+# set (TARANTOOL_CLIENTS "tarancheck" "tarantar")
+set (TARANTOOL_CLIENTS "")
 # Define PACKAGE macro in tarantool/config.h
 set (PACKAGE "Tarantool")
 
@@ -146,6 +148,7 @@ endif()
 # Specify where to look for include files.
 #
 include_directories("${PROJECT_SOURCE_DIR}")
+include_directories("${PROJECT_SOURCE_DIR}/src") # for lib/
 include_directories("${PROJECT_SOURCE_DIR}/include")
 include_directories("${PROJECT_BINARY_DIR}/include")
 include_directories("${PROJECT_SOURCE_DIR}/third_party")
@@ -361,7 +364,8 @@ include (cmake/package.cmake)
 include (cmake/rpm.cmake)
 
 add_subdirectory(cfg)
-add_subdirectory(connector)
+# Disable connector_c for 1.6
+# add_subdirectory(connector)
 add_subdirectory(src)
 add_subdirectory(extra)
 add_subdirectory(client)
@@ -426,6 +430,9 @@ message (STATUS "ENABLE_BUNDLED_LIBEIO: ${ENABLE_BUNDLED_LIBEIO}")
 message (STATUS "ENABLE_BUNDLED_LIBCORO: ${ENABLE_BUNDLED_LIBCORO}")
 message (STATUS "ENABLE_DOC: ${ENABLE_DOC}")
 list_optional_packages()
+if (TARGET_OS_DARWIN)
+    message (STATUS "DARWIN_BUILD_TYPE: ${DARWIN_BUILD_TYPE}")
+endif()
 message (STATUS "")
 message (STATUS "To view or modify configuration results, check out CMakeCache.txt.")
 message (STATUS "")

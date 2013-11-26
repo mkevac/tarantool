@@ -35,20 +35,24 @@
 
 #include <unistd.h>
 
+#if 0
 #include <connector/c/include/tarantool/tnt.h>
 #include <connector/c/include/tarantool/tnt_net.h>
 #include <connector/c/include/tarantool/tnt_sql.h>
+#include <connector/c/include/tarantool/tnt_iter.h>
 #include <connector/c/include/tarantool/tnt_xlog.h>
+#endif
 
 #include "client/tarantool/tc_opt.h"
 #include "client/tarantool/tc_admin.h"
 #include "client/tarantool/tc.h"
+#include "client/tarantool/tc_pager.h"
 #include "client/tarantool/tc_cli.h"
 #include "client/tarantool/tc_print.h"
-#include "client/tarantool/tc_store.h"
+/*#include "client/tarantool/tc_store.h"*/
 #include "client/tarantool/tc_query.h"
-#include "client/tarantool/tc_print_snap.h"
-#include "client/tarantool/tc_print_xlog.h"
+/*#include "client/tarantool/tc_print_snap.h"*/
+/*#include "client/tarantool/tc_print_xlog.h"*/
 
 #define TC_DEFAULT_PORT 33013
 #define TC_DEFAULT_PORT 33013
@@ -58,16 +62,22 @@ struct tc tc;
 
 static void tc_init(void) {
 	memset(&tc, 0, sizeof(tc));
-	tc.tee_fd = -1;
 	setlocale(LC_ALL, "");
+	tc.pager_fd = fileno(stdout);
+	tc.pager_pid = 0;
 }
 
 static void tc_free(void) {
+	/*
 	if (tc.net) {
 		tnt_stream_free(tc.net);
 	}
+	*/
 	tc_admin_close(&tc.admin);
+	/*
 	tc_cmd_tee_close();
+	*/
+	tc_pager_kill();
 }
 
 void tc_error(char *fmt, ...) {
@@ -80,6 +90,44 @@ void tc_error(char *fmt, ...) {
 	va_end(args);
 	tc_printf("error: %s\n", msg);
 	exit(1);
+}
+
+#if 0
+static int get_admin_port(void)
+{
+	char *e = NULL;
+	tc_query("call box.dostring('return box.cfg.admin_port')", &e);
+	struct tnt_iter i, it, ifl;
+	tnt_iter_reply(&i, tc.net);
+	struct tnt_reply *r = TNT_IREPLY_PTR(&i);
+	if (!tnt_next(&i)) {
+		tnt_iter_free(&i);
+	}
+	if (tnt_error(tc.net) != TNT_EOK) {
+		tc_error(tc_query_error("%s ERROR, %s",
+				tc_query_op(r),
+				tnt_strerror(tc.net)));
+	} else if (r->code != 0) {
+		tc_error(tc_query_error("%s ERROR, %s (%s)",
+				tc_query_op(r), ((r->error) ? r->error : ""),
+				tnt_strerror(tc.net)));
+	}
+	tnt_iter_list(&it, TNT_REPLY_LIST(r));
+	if (!tnt_next(&it)) {
+		tnt_iter_free(&it);
+		tnt_iter_free(&i);
+	}
+	struct tnt_tuple *tu = TNT_ILIST_TUPLE(&it);
+	tnt_iter(&ifl, tu);
+	if (!tnt_next(&ifl)) { goto end; }
+	int port = *((uint32_t* )TNT_IFIELD_DATA(&ifl));
+end:
+	tnt_iter_free(&ifl);
+	tnt_iter_free(&it);
+	tnt_iter_free(&i);
+	if (e != NULL)
+		free(e);
+	return port;
 }
 
 static void tc_connect(void)
@@ -100,8 +148,12 @@ static void tc_connect(void)
 	/* connecting to server */
 	if (tnt_connect(tc.net) == -1)
 		tc_error("%s", tnt_strerror(tc.net));
+	if (tc.opt.port_admin == 0)
+		tc.opt.port_admin = get_admin_port();
 }
+#endif
 
+#if 0
 static char *send_cmd(char *cmd)
 {
 	size_t size = 0;
@@ -129,16 +181,31 @@ static int get_primary_port()
 	}
 	return port;
 }
+#endif
 
 static void tc_connect_admin(void)
 {
-
+	tc.opt.port_admin = 33015;
 	if (tc_admin_connect(&tc.admin,
 			     tc.opt.host,
 			     tc.opt.port_admin) == -1)
 		tc_error("admin console connection failed");
+#if 0
 	if (tc.opt.port == 0)
 		tc.opt.port = get_primary_port();
+#endif
+}
+
+#if 0
+static void tc_connect_both(void)
+{
+	if (!tc.opt.port && tc.opt.port_admin) {
+		tc_connect_admin();
+		tc_connect();
+	} else {
+		tc_connect();
+		tc_connect_admin();
+	}
 }
 
 static void tc_validate(void)
@@ -154,14 +221,15 @@ static void tc_validate(void)
 	if (tc.opt.format && strcmp(tc.opt.format, "raw") == 0)
 		tc.opt.raw = 1;
 }
+#endif
 
-int main(int argc, char *argv[])
+int main(int argc, char *argv[], char *envp[])
 {
 	tc_init();
 
 	int rc = 0;
-	enum tc_opt_mode mode = tc_opt_init(&tc.opt, argc, argv);
-	tc_validate();
+	enum tc_opt_mode mode = tc_opt_init(&tc.opt, argc, argv, envp);
+	/*tc_validate();*/
 	switch (mode) {
 	case TC_OPT_USAGE:
 		tc_opt_usage();
@@ -169,6 +237,7 @@ int main(int argc, char *argv[])
 	case TC_OPT_VERSION:
 		tc_opt_version();
 		break;
+#if 0
 	case TC_OPT_RPL:
 		tc_connect();
 		rc = tc_store_remote();
@@ -180,14 +249,13 @@ int main(int argc, char *argv[])
 		tc_connect();
 		rc = tc_store_play();
 		break;
+#endif
 	case TC_OPT_CMD:
 		tc_connect_admin();
-		tc_connect();
 		rc = tc_cli_cmdv();
 		break;
 	case TC_OPT_INTERACTIVE:
 		tc_connect_admin();
-		tc_connect();
 		tc_cli_motd();
 		rc = tc_cli();
 		break;

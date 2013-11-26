@@ -15,16 +15,25 @@ try:
 except ImportError:
     from StringIO import StringIO
 
-def check_tarantool_import():
-    try:
-        tnt_py = os.path.dirname(os.path.abspath(__file__))
-        tnt_py = os.path.join(tnt_py, 'tarantool-python/src')
-        if tnt_py not in sys.path:
-            sys.path = [tnt_py] + sys.path
-        import tarantool
-    except ImportError:
-        sys.stderr.write("\n\nNo tarantool-python library found\n")
-        sys.exit(1)
+def check_libs():
+    deps = [
+        ('msgpack', 'msgpack-python'),
+        ('tarantool', 'tarantool-python/src')
+    ]
+    base_path = os.path.dirname(os.path.abspath(__file__))
+
+    for (mod_name, mod_dir) in deps:
+        mod_path = os.path.join(base_path, mod_dir)
+        if mod_path not in sys.path:
+            sys.path = [mod_path] + sys.path
+
+    for (mod_name, _mod_dir) in deps:
+        try:
+            __import__(mod_name)
+        except ImportError:
+            sys.stderr.write("\n\nNo %s library found\n" % mod_name)
+            sys.exit(1)
+
 
 class FilteredStream:
     """Helper class to filter .result file output"""
@@ -86,7 +95,7 @@ class Test:
 
     def __init__(self, name, args, suite_ini):
         """Initialize test properties: path to test file, path to
-        temporary result file, path to the client program, test status.""" 
+        temporary result file, path to the client program, test status."""
         rg = re.compile('.test.*')
         self.name = name
         self.args = args
@@ -130,6 +139,7 @@ class Test:
                 sys.stdout = FilteredStream(self.tmp_result)
                 stdout_fileno = sys.stdout.stream.fileno()
                 self.execute(server)
+                sys.stdout.stream.flush()
             self.is_executed_ok = True
         except Exception as e:
             traceback.print_exc(e)
@@ -139,6 +149,7 @@ class Test:
                 sys.stdout.close()
             sys.stdout = save_stdout
         self.is_executed = True
+        sys.stdout.flush()
 
         if not self.skip:
             if self.is_executed_ok and os.path.isfile(self.result):

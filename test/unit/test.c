@@ -3,51 +3,69 @@
 #include <stdio.h>
 #include <stdarg.h>
 
-static int tests_done = 0;
-static int tests_failed = 0;
-static int plan_test = 0;
+enum { MAX_LEVELS = 10 };
+static int tests_done[MAX_LEVELS];
+static int tests_failed[MAX_LEVELS];
+static int plan_test[MAX_LEVELS];
+static int level = -1;
+
+void
+_space(FILE *stream)
+{
+	for (int i = 0 ; i < level; i++) {
+		fprintf(stream, "    ");
+	}
+}
 
 void
 plan(int count)
 {
-	plan_test = count;
-	static int showed_plan = 0;
-	if (!showed_plan)
-		printf("%d..%d\n", 1, plan_test);
-	showed_plan = 1;
+	++level;
+	plan_test[level] = count;
+	tests_done[level] = 0;
+	tests_failed[level] = 0;
+
+	_space(stdout);
+	printf("%d..%d\n", 1, plan_test[level]);
 }
 
 int
 check_plan(void)
 {
-	int res;
-	if (tests_done != plan_test) {
+	int r = 0;
+	if (tests_done[level] != plan_test[level]) {
+		_space(stderr);
 		fprintf(stderr,
 			"# Looks like you planned %d tests but ran %d.\n",
-			plan_test, tests_done);
-		res = -1;
+			plan_test[level], tests_done[level]);
+		r = -1;
 	}
 
-	if (tests_failed) {
+	if (tests_failed[level]) {
+		_space(stderr);
 		fprintf(stderr,
 			"# Looks like you failed %d test of %d run.\n",
-			tests_failed, tests_done);
-		res = tests_failed;
+			tests_failed[level], tests_done[level]);
+		r = tests_failed[level];
 	}
-	return res;
+	--level;
+	if (level >= 0) {
+		is(r, 0, "subtests");
+	}
+	return r;
 }
 
 int
-__ok(int condition, const char *fmt, ...)
+_ok(int condition, const char *fmt, ...)
 {
 	va_list ap;
 
-	printf("%s %d - ", condition ? "ok" : "not ok", ++tests_done);
+	_space(stdout);
+	printf("%s %d - ", condition ? "ok" : "not ok", ++tests_done[level]);
 	if (!condition)
-		tests_failed++;
+		tests_failed[level]++;
 	va_start(ap, fmt);
 	vprintf(fmt, ap);
 	printf("\n");
 	return condition;
 }
-

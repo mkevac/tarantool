@@ -28,7 +28,7 @@ box.schema.space.create = function(name, options)
     if options.id then
         id = options.id
     else
-        id = box.unpack('i', _space.index[0]:max()[0])
+        id = _space.index[0]:max()[0]
         if id < box.schema.SYSTEM_ID_MAX then
             id = box.schema.SYSTEM_ID_MAX + 1
         else
@@ -74,15 +74,15 @@ box.schema.index.create = function(space_id, name, index_type, options)
         options.unique = true
     end
     local unique = options.unique and 1 or 0
-    local part_count = #options.parts/2
+    local part_count = bit.rshift(#options.parts, 1)
     local parts = options.parts
     local iid = 0
     -- max
     local tuple = _index.index[0]:select_reverse_range(1, space_id)
     if tuple then
-        local id = box.unpack('i', tuple[0])
+        local id = tuple[0]
         if id == space_id then
-            iid = box.unpack('i', tuple[1]) + 1
+            iid = tuple[1] + 1
         end
     end
     if options.id then
@@ -218,6 +218,7 @@ function box.schema.space.bless(space)
     space_mt.replace = function(space, ...) return box.replace(space.n, ...) end
     space_mt.replace_if_exists = function(space, ...) return box.replace_if_exists(space.n, ...) end
     space_mt.delete = function(space, ...) return box.delete(space.n, ...) end
+    space_mt.auto_increment = function(space, ...) return box.auto_increment(space.n, ...) end
     space_mt.truncate = function(space)
         local pk = space.index[0]
         if pk == nil then
