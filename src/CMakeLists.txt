@@ -96,7 +96,7 @@ if (ENABLE_TRACE)
 endif()
 
 if (ENABLE_DTRACE_USDT AND ENABLE_DTRACE)
-    set(common_sources ${common_sources} lua/usdt.cc)
+    set (common_sources ${common_sources} lua/usdt.cc)
 endif()
 
 set_source_files_compile_flags(${common_sources})
@@ -106,11 +106,8 @@ add_dependencies(core generate_headers)
 set (common_libraries cfg core small)
 
 list(APPEND common_libraries
-    ${LIBEV_LIBRARIES}
     ${LIBEIO_LIBRARIES}
-    ${LIBCORO_LIBRARIES}
     ${LIBGOPT_LIBRARIES}
-    ${LIBCJSON_LIBRARIES}
     ${LIBYAML_LIBRARIES}
     ${LUAJIT_LIB}
     misc
@@ -157,8 +154,14 @@ if (ENABLE_DTRACE)
         endif()
      endif()
     if (ENABLE_DTRACE_USDT)
-        set(common_libraries ${common_libraries} ${LIBUSDT_LIBRARIES})
+        set (common_libraries ${common_libraries} ${LIBUSDT_LIBRARIES})
     endif()
+else()
+    list(APPEND common_libraries
+        ${LIBEV_LIBRARIES}
+        ${LIBCORO_LIBRARIES}
+        ${LIBCJSON_LIBRARIES}
+    )
 endif()
 
 set (common_libraries ${common_libraries} PARENT_SCOPE)
@@ -181,16 +184,26 @@ function(tarantool_module mod)
     unset(cfg_c_flags)
     if (ENABLE_DTRACE AND NOT TARGET_OS_DARWIN)
         set(dtrace_obj ${DTRACE_O_DIR}/dtrace_${mod}.o)
-        add_custom_command(OUTPUT ${dtrace_obj}
-            COMMAND ${DTRACE} -G -s ${DTRACE_D_FILE} -o ${dtrace_obj} ${DTRACE_OBJS} 
+        set(extern_libs
+            ${LIBCJSON_LIBRARIES}
+            ${LIBCORO_LIBRARIES}
+            ${LIBEV_LIBRARIES}
         )
-        set_source_files_properties(${dtrace_obj}
+        add_custom_command(OUTPUT ${dtrace_obj}
+            COMMAND ${DTRACE} -G -s ${DTRACE_D_FILE} -o ${dtrace_obj} ${extern_libs}
+        )
+        set_source_files_properties(
+           ${dtrace_obj} ${extern_libs}
             PROPERTIES
             EXTERNAL_OBJECT true
             GENERATED true
         )
-        set(module_sources ${module_sources} ${dtrace_obj})
+        list(APPEND module_sources
+            ${dtrace_obj}
+            ${extern_libs}
+        )
         unset(dtrace_obj)
+        unset(extern_libs)
     endif()
     add_executable(tarantool_${mod}
         ${module_sources}
