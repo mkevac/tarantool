@@ -31,6 +31,7 @@
 #include "tarantool/util.h"
 #include "key_def.h"
 #include <pickle.h>
+#include "comphint.h"
 
 struct tbuf;
 
@@ -333,6 +334,24 @@ tuple_compare(const struct tuple *tuple_a, const struct tuple *tuple_b,
 	      const struct key_def *key_def);
 
 /**
+ * @brief Compare two tuples using field by field using key definition
+ * @param tuple_a tuple
+ * @param tuple_b tuple
+ * @param key_def key definition
+ * @param hint compare hint
+ * @retval 0  if key_fields(tuple_a) == key_fields(tuple_b)
+ * @retval <0 if key_fields(tuple_a) < key_fields(tuple_b)
+ * @retval >0 if key_fields(tuple_a) > key_fields(tuple_b)
+ */
+int
+tuple_compare_hint(const struct tuple *tuple_a, const struct tuple *tuple_b,
+		   const struct key_def *key_def, compare_hint *hint);
+
+int
+tuple_compare_hint_dbg(const struct tuple *tuple_a, const struct tuple *tuple_b,
+		   const struct key_def *key_def, compare_hint *hint);
+
+/**
  * @brief Compare two tuples field by field for duplicate using key definition
  * @param tuple_a tuple
  * @param tuple_b tuple
@@ -347,6 +366,24 @@ tuple_compare_dup(const struct tuple *tuple_a, const struct tuple *tuple_b,
 		  const struct key_def *key_def);
 
 /**
+ * @brief Compare two tuples field by field for duplicate using key definition
+ * @param tuple_a tuple
+ * @param tuple_b tuple
+ * @param key_def key definition
+ * @param hint compare hint
+ * @retval 0  if key_fields(tuple_a) == key_fields(tuple_b) and
+ * tuple_a == tuple_b - tuple_a is the same object as tuple_b
+ * @retval <0 if key_fields(tuple_a) <= key_fields(tuple_b)
+ * @retval >0 if key_fields(tuple_a > key_fields(tuple_b)
+ */
+int
+tuple_compare_dup_hint(const struct tuple *tuple_a, const struct tuple *tuple_b,
+		       const struct key_def *key_def, compare_hint *hint);
+int
+tuple_compare_dup_hint_dbg(const struct tuple *tuple_a, const struct tuple *tuple_b,
+		       const struct key_def *key_def, compare_hint *hint);
+
+/**
  * @brief Compare a tuple with a key field by field using key definition
  * @param tuple_a tuple
  * @param key BER-encoded key
@@ -359,6 +396,26 @@ tuple_compare_dup(const struct tuple *tuple_a, const struct tuple *tuple_b,
 int
 tuple_compare_with_key(const struct tuple *tuple_a, const char *key,
 		       uint32_t part_count, const struct key_def *key_def);
+
+/**
+ * @brief Compare a tuple with a key field by field using key definition
+ * @param tuple_a tuple
+ * @param key BER-encoded key
+ * @param part_count number of parts in \a key
+ * @param key_def key definition
+ * @param hint compare hint
+ * @retval 0  if key_fields(tuple_a) == parts(key)
+ * @retval <0 if key_fields(tuple_a) < parts(key)
+ * @retval >0 if key_fields(tuple_a) > parts(key)
+ */
+int
+tuple_compare_with_key_hint(const struct tuple *tuple_a, const char *key,
+			    uint32_t part_count,
+			    const struct key_def *key_def, compare_hint *hint);
+int
+tuple_compare_with_key_hint_dbg(const struct tuple *tuple_a, const char *key,
+			    uint32_t part_count,
+			    const struct key_def *key_def, compare_hint *hint);
 
 /** These functions are implemented in tuple_convert.cc. */
 

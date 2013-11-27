@@ -31,12 +31,13 @@
 
 #include "index.h"
 
-#include <third_party/sptree.h>
+#include "tuple.h"
+#include <third_party/sptree_avl_new.h>
 
 /**
  * Instantiate sptree definitions
  */
-SPTREE_DEF(index, realloc);
+SPTREE_AVL_DEF(index, realloc);
 
 class TreeIndex: public Index {
 public:

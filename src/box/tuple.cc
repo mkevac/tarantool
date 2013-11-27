@@ -46,6 +46,20 @@ struct tuple_format *tuple_format_ber;
 static uint32_t formats_size, formats_capacity;
 extern int snapshot_pid;
 
+void min_hint(const compare_hint *h1, const compare_hint *h2,
+	      compare_hint *res)
+{
+	res->fields_hit = MIN(h1->fields_hit, h2->fields_hit);
+	if (h1->fields_hit < h2->fields_hit) {
+		res->current_field_hit = h1->current_field_hit;
+	} else if (h1->fields_hit > h2->fields_hit) {
+		res->current_field_hit = h2->current_field_hit;
+	} else {
+		res->current_field_hit =
+			MIN(h1->current_field_hit, h2->current_field_hit);
+	}
+}
+
 /** Extract all available type info from keys. */
 void
 field_type_create(enum field_type *types, uint32_t field_count,
@@ -395,6 +409,20 @@ tuple_new(struct tuple_format *format, uint32_t field_count,
 	return new_tuple;
 }
 
+int
+mymemcmp(const void * ptr1, const void * ptr2, size_t num)
+{
+	const char *c1 = (const char *)ptr1;
+	const char *c2 = (const char *)ptr2;
+	for(int i = 1; i <= num; ++i, ++c1, ++c2) {
+		if(*c1 < *c2)
+			return -i;
+		else if(*c1 > *c2)
+			return i;
+	}
+	return 0;
+}
+
 /*
  * Compare two tuple fields.
  * Separate version exists since compare is a very
@@ -522,6 +550,204 @@ tuple_compare_with_key(const struct tuple *tuple, const char *key,
 			break;
 	}
 	return r;
+}
+
+/*
+ * Compare two tuple fields.
+ * Separate version exists since compare is a very
+ * often used operation, so any performance speed up
+ * in it can have dramatic impact on the overall
+ * server performance.
+ */
+static inline int
+tuple_compare_field_hint(const char *field_a, const char *field_b,
+		    enum field_type type, uint32_t *hint)
+{
+	switch (type) {
+	case NUM:
+	{
+		assert(field_a[0] == field_b[0]);
+		uint32_t a = *(uint32_t *) (field_a + 1);
+		uint32_t b = *(uint32_t *) (field_b + 1);
+		/*
+		 * Little-endian unsigned int is memcmp
+		 * compatible.
+		 */
+		return a < b ? -1 : a > b;
+	}
+	case NUM64:
+	{
+		assert(field_a[0] == field_b[0]);
+		uint64_t a = *(uint64_t *) (field_a + 1);
+		uint64_t b = *(uint64_t *) (field_b + 1);
+		return a < b ? -1 : a > b;
+	}
+	default:
+	{
+		uint32_t size_a = load_varint32(&field_a);
+		uint32_t size_b = load_varint32(&field_b);
+		uint32_t size_min = MIN(size_a, size_b);
+		int r = mymemcmp(field_a + *hint, field_b + *hint,
+			(size_t)(size_min - *hint));
+		if (r == 0) {
+			r = size_a < size_b ? -1 : size_a > size_b;
+			*hint = size_min;
+		} else {
+			*hint += (r > 0 ? r : -r) - 1;
+		}
+		return r;
+	} /* end case */
+	} /* end switch */
+}
+
+int
+tuple_compare_hint(const struct tuple *tuple_a, const struct tuple *tuple_b,
+		   const struct key_def *key_def, compare_hint *hint)
+{
+	if (key_def->part_count == 1 && key_def->parts[0].fieldno == 0) {
+		if (hint->fields_hit == 1)
+			return 0;
+		int r = tuple_compare_field_hint(tuple_a->data, tuple_b->data,
+					   key_def->parts[0].type,
+					   &hint->current_field_hit);
+		if (r == 0)
+			hint->fields_hit = 1;
+		return r;
+	}
+
+	struct key_part *part = key_def->parts + hint->fields_hit;
+	struct key_part *end = part + key_def->part_count;
+	struct tuple_format *format_a = tuple_format(tuple_a);
+	struct tuple_format *format_b = tuple_format(tuple_b);
+	const char *field_a;
+	const char *field_b;
+	int r = 0;
+
+	for (; part < end; part++) {
+		field_a = tuple_field_old(format_a, tuple_a, part->fieldno);
+		field_b = tuple_field_old(format_b, tuple_b, part->fieldno);
+		r = tuple_compare_field_hint(field_a, field_b, part->type,
+			&hint->current_field_hit);
+		if (r) {
+			break;
+		} else {
+			hint->fields_hit++;
+			hint->current_field_hit = 0;
+		}
+	}
+	return r;
+}
+
+int
+tuple_compare_hint_dbg(const struct tuple *tuple_a, const struct tuple *tuple_b,
+		   const struct key_def *key_def, compare_hint *hint)
+{
+	int r1 = tuple_compare(tuple_a, tuple_b, key_def);
+	int r2 = tuple_compare_hint(tuple_a, tuple_b, key_def, hint);
+	int t1 = (r1 > 0) - (r1 < 0);
+	int t2 = (r2 > 0) - (r2 < 0);
+	assert(t1 == t2);
+	return r2;
+}
+
+int
+tuple_compare_dup_hint(const struct tuple *tuple_a, const struct tuple *tuple_b,
+		       const struct key_def *key_def, compare_hint *hint)
+{
+	int r = tuple_compare_hint(tuple_a, tuple_b, key_def, hint);
+	if (r == 0)
+		r = tuple_a < tuple_b ? -1 : tuple_a > tuple_b;
+
+	return r;
+}
+
+int
+tuple_compare_dup_hint_dbg(const struct tuple *tuple_a, const struct tuple *tuple_b,
+		       const struct key_def *key_def, compare_hint *hint)
+{
+	int r1 = tuple_compare_dup(tuple_a, tuple_b, key_def);
+	int r2 = tuple_compare_dup_hint(tuple_a, tuple_b, key_def, hint);
+	int t1 = (r1 > 0) - (r1 < 0);
+	int t2 = (r2 > 0) - (r2 < 0);
+	assert(t1 == t2);
+	return r2;
+}
+
+int
+tuple_compare_with_key_hint(const struct tuple *tuple, const char *key,
+		            uint32_t part_count, const struct key_def *key_def,
+		            compare_hint *hint)
+{
+	struct key_part *part = key_def->parts + hint->fields_hit;
+	struct key_part *end = part + MIN(part_count, key_def->part_count);
+	struct tuple_format *format = tuple_format(tuple);
+	const char *field;
+	uint32_t field_size;
+	uint32_t key_size;
+	int r = 0; /* Part count can be 0 in wildcard searches and full hint */
+	for (; part < end; part++, key += key_size) {
+		field = tuple_field_old(format, tuple, part->fieldno);
+		field_size = load_varint32(&field);
+		key_size = load_varint32(&key);
+		switch (part->type) {
+		case NUM:
+		{
+			uint32_t a = *(uint32_t *) field;
+			uint32_t b = *(uint32_t *) key;
+			r = a < b ? - 1 : a > b;
+			break;
+		}
+		case NUM64:
+		{
+			uint64_t a = *(uint64_t *) field;
+			uint64_t b;
+			if (key_size == sizeof(uint32_t)) {
+				/*
+				 * Allow search in NUM64 indexes
+				 * using NUM keys.
+				 */
+				b = *(uint32_t *) key;
+			} else {
+				b = *(uint64_t *) key;
+			}
+			r = a < b ? -1 : a > b;
+			break;
+		}
+		default:
+			uint32_t size_min = MIN(field_size, key_size);
+			r = mymemcmp(field + hint->current_field_hit,
+				key + hint->current_field_hit,
+				(size_t)(size_min - hint->current_field_hit));
+			if (r == 0) {
+				r = field_size < key_size ? -1 :
+					field_size > key_size;
+				hint->current_field_hit = size_min;
+			} else {
+				hint->current_field_hit += (r > 0 ? r : -r) - 1;
+			}
+			break;
+		}
+		if (r == 0) {
+			hint->fields_hit++;
+			hint->current_field_hit = 0;
+		} else {
+			break;
+		}
+	}
+	return r;
+}
+
+int
+tuple_compare_with_key_hint_dbg(const struct tuple *tuple, const char *key,
+		            uint32_t part_count, const struct key_def *key_def,
+		            compare_hint *hint)
+{
+	int r1 = tuple_compare_with_key(tuple, key, part_count, key_def);
+	int r2 = tuple_compare_with_key_hint(tuple, key, part_count, key_def, hint);
+	int t1 = (r1 > 0) - (r1 < 0);
+	int t2 = (r2 > 0) - (r2 < 0);
+	assert(t1 == t2);
+	return r2;
 }
 
 void

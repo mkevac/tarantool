@@ -65,27 +65,27 @@ sptree_index_fold(void *node, struct tuple *tuple)
 }
 
 static int
-sptree_index_node_compare(const void *node_a, const void *node_b, void *arg)
+sptree_index_node_compare_hint(const void *node_a, const void *node_b, void *arg, compare_hint *hint)
 {
 	TreeIndex *self = (TreeIndex *) arg;
 	struct tuple *tuple_a = sptree_index_unfold(node_a);
 	struct tuple *tuple_b = sptree_index_unfold(node_b);
 
-	return tuple_compare(tuple_a, tuple_b, self->key_def);
+	return tuple_compare_hint_dbg(tuple_a, tuple_b, self->key_def, hint);
 }
 
 static int
-sptree_index_node_compare_dup(const void *node_a, const void *node_b, void *arg)
+sptree_index_node_compare_dup_hint(const void *node_a, const void *node_b, void *arg, compare_hint *hint)
 {
 	TreeIndex *self = (TreeIndex *) arg;
 	struct tuple *tuple_a = sptree_index_unfold(node_a);
 	struct tuple *tuple_b = sptree_index_unfold(node_b);
 
-	return tuple_compare_dup(tuple_a, tuple_b, self->key_def);
+	return tuple_compare_dup_hint_dbg(tuple_a, tuple_b, self->key_def, hint);
 }
 
 static int
-sptree_index_node_compare_with_key(const void *key, const void *node, void *arg)
+sptree_index_node_compare_with_key_hint(const void *key, const void *node, void *arg, compare_hint *hint)
 {
 	TreeIndex *self = (TreeIndex *) arg;
 	struct sptree_index_key_data *key_data =
@@ -93,8 +93,8 @@ sptree_index_node_compare_with_key(const void *key, const void *node, void *arg)
 	struct tuple *tuple = sptree_index_unfold(node);
 
 	/* the result is inverted because arguments are swapped */
-	return -tuple_compare_with_key(tuple, key_data->key,
-				       key_data->part_count, self->key_def);
+	return -tuple_compare_with_key_hint_dbg(tuple, key_data->key,
+				       key_data->part_count, self->key_def, hint);
 }
 
 /* {{{ TreeIndex Iterators ****************************************/
@@ -147,8 +147,9 @@ tree_iterator_eq(struct iterator *iterator)
 	struct tree_iterator *it = tree_iterator(iterator);
 
 	void *node = sptree_index_iterator_next(it->iter);
+	compare_hint hint = {0, 0};
 	if (node && it->index->tree.compare(&it->key_data, node,
-					    (void *) it->index) == 0)
+					    (void *) it->index, &hint) == 0)
 		return sptree_index_unfold(node);
 
 	return NULL;
@@ -160,9 +161,10 @@ tree_iterator_req(struct iterator *iterator)
 	struct tree_iterator *it = tree_iterator(iterator);
 
 	void *node = sptree_index_iterator_reverse_next(it->iter);
+	compare_hint hint = {0, 0};
 	if (node != NULL
 	    && it->index->tree.compare(&it->key_data, node,
-				       (void *) it->index) == 0) {
+				       (void *) it->index, &hint) == 0) {
 		return sptree_index_unfold(node);
 	}
 
@@ -175,9 +177,10 @@ tree_iterator_lt(struct iterator *iterator)
 	struct tree_iterator *it = tree_iterator(iterator);
 
 	void *node ;
+	compare_hint hint = {0, 0};
 	while ((node = sptree_index_iterator_reverse_next(it->iter)) != NULL) {
 		if (it->index->tree.compare(&it->key_data, node,
-					    (void *) it->index) != 0) {
+					    (void *) it->index, &hint) != 0) {
 			it->base.next = tree_iterator_le;
 			return sptree_index_unfold(node);
 		}
@@ -192,9 +195,10 @@ tree_iterator_gt(struct iterator *iterator)
 	struct tree_iterator *it = tree_iterator(iterator);
 
 	void *node;
+	compare_hint hint = {0, 0};
 	while ((node = sptree_index_iterator_next(it->iter)) != NULL) {
 		if (it->index->tree.compare(&it->key_data, node,
-					    (void *) it->index) != 0) {
+					    (void *) it->index, &hint) != 0) {
 			it->base.next = tree_iterator_ge;
 			return sptree_index_unfold(node);
 		}
@@ -403,8 +407,8 @@ TreeIndex::endBuild()
 
 	sptree_index_init(&tree, sizeof(struct sptree_index_node),
 			  nodes, n_tuples, estimated_tuples,
-			  sptree_index_node_compare_with_key,
-			  sptree_index_node_compare,
+			  sptree_index_node_compare_with_key_hint,
+			  sptree_index_node_compare_hint,
 			  this);
 }
 
@@ -447,8 +451,8 @@ TreeIndex::build(Index *pk)
 	/* If n_tuples == 0 then estimated_tuples = 0, elem == NULL, tree is empty */
 	sptree_index_init(&tree, sizeof(struct sptree_index_node),
 			  nodes, n_tuples, estimated_tuples,
-			  sptree_index_node_compare_with_key,
-			  key_def->is_unique ? sptree_index_node_compare
-					     : sptree_index_node_compare_dup,
+			  sptree_index_node_compare_with_key_hint,
+			  key_def->is_unique ? sptree_index_node_compare_hint
+					     : sptree_index_node_compare_dup_hint,
 			  this);
 }
