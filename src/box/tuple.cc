@@ -608,15 +608,15 @@ tuple_compare_hint(const struct tuple *tuple_a, const struct tuple *tuple_b,
 		if (hint->fields_hit == 1)
 			return 0;
 		int r = tuple_compare_field_hint(tuple_a->data, tuple_b->data,
-					   key_def->parts[0].type,
-					   &hint->current_field_hit);
+						 key_def->parts[0].type,
+						 &hint->current_field_hit);
 		if (r == 0)
 			hint->fields_hit = 1;
 		return r;
 	}
 
 	struct key_part *part = key_def->parts + hint->fields_hit;
-	struct key_part *end = part + key_def->part_count;
+	struct key_part *end = key_def->parts + key_def->part_count;
 	struct tuple_format *format_a = tuple_format(tuple_a);
 	struct tuple_format *format_b = tuple_format(tuple_b);
 	const char *field_a;
@@ -642,11 +642,17 @@ int
 tuple_compare_hint_dbg(const struct tuple *tuple_a, const struct tuple *tuple_b,
 		   const struct key_def *key_def, compare_hint *hint)
 {
+	compare_hint save_hint = *hint;
 	int r1 = tuple_compare(tuple_a, tuple_b, key_def);
 	int r2 = tuple_compare_hint(tuple_a, tuple_b, key_def, hint);
 	int t1 = (r1 > 0) - (r1 < 0);
 	int t2 = (r2 > 0) - (r2 < 0);
-	assert(t1 == t2);
+	if(t1 != t2) {
+		raise(SIGINT);
+		int r1 = tuple_compare(tuple_a, tuple_b, key_def);
+		int r2 = tuple_compare_hint(tuple_a, tuple_b, key_def, &save_hint);
+		(void)r1; (void)r2;
+	}
 	return r2;
 }
 
@@ -665,11 +671,17 @@ int
 tuple_compare_dup_hint_dbg(const struct tuple *tuple_a, const struct tuple *tuple_b,
 		       const struct key_def *key_def, compare_hint *hint)
 {
+	compare_hint save_hint = *hint;
 	int r1 = tuple_compare_dup(tuple_a, tuple_b, key_def);
 	int r2 = tuple_compare_dup_hint(tuple_a, tuple_b, key_def, hint);
 	int t1 = (r1 > 0) - (r1 < 0);
 	int t2 = (r2 > 0) - (r2 < 0);
-	assert(t1 == t2);
+	if(t1 != t2) {
+		raise(SIGINT);
+		int r1 = tuple_compare_dup(tuple_a, tuple_b, key_def);
+		int r2 = tuple_compare_dup_hint(tuple_a, tuple_b, key_def, &save_hint);
+		(void)r1; (void)r2;
+	}
 	return r2;
 }
 
@@ -679,7 +691,7 @@ tuple_compare_with_key_hint(const struct tuple *tuple, const char *key,
 		            compare_hint *hint)
 {
 	struct key_part *part = key_def->parts + hint->fields_hit;
-	struct key_part *end = part + MIN(part_count, key_def->part_count);
+	struct key_part *end = key_def->parts + MIN(part_count, key_def->part_count);
 	struct tuple_format *format = tuple_format(tuple);
 	const char *field;
 	uint32_t field_size;
@@ -742,11 +754,17 @@ tuple_compare_with_key_hint_dbg(const struct tuple *tuple, const char *key,
 		            uint32_t part_count, const struct key_def *key_def,
 		            compare_hint *hint)
 {
+	compare_hint save_hint = *hint;
 	int r1 = tuple_compare_with_key(tuple, key, part_count, key_def);
 	int r2 = tuple_compare_with_key_hint(tuple, key, part_count, key_def, hint);
 	int t1 = (r1 > 0) - (r1 < 0);
 	int t2 = (r2 > 0) - (r2 < 0);
-	assert(t1 == t2);
+	if(t1 != t2) {
+		raise(SIGINT);
+		int r1 = tuple_compare_with_key(tuple, key, part_count, key_def);
+		int r2 = tuple_compare_with_key_hint(tuple, key, part_count, key_def, &save_hint);
+		(void)r1; (void)r2;
+	}
 	return r2;
 }
 

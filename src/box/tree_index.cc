@@ -71,7 +71,7 @@ sptree_index_node_compare_hint(const void *node_a, const void *node_b, void *arg
 	struct tuple *tuple_a = sptree_index_unfold(node_a);
 	struct tuple *tuple_b = sptree_index_unfold(node_b);
 
-	return tuple_compare_hint_dbg(tuple_a, tuple_b, self->key_def, hint);
+	return tuple_compare_hint(tuple_a, tuple_b, self->key_def, hint);
 }
 
 static int
@@ -81,7 +81,7 @@ sptree_index_node_compare_dup_hint(const void *node_a, const void *node_b, void 
 	struct tuple *tuple_a = sptree_index_unfold(node_a);
 	struct tuple *tuple_b = sptree_index_unfold(node_b);
 
-	return tuple_compare_dup_hint_dbg(tuple_a, tuple_b, self->key_def, hint);
+	return tuple_compare_dup_hint(tuple_a, tuple_b, self->key_def, hint);
 }
 
 static int
@@ -93,7 +93,7 @@ sptree_index_node_compare_with_key_hint(const void *key, const void *node, void 
 	struct tuple *tuple = sptree_index_unfold(node);
 
 	/* the result is inverted because arguments are swapped */
-	return -tuple_compare_with_key_hint_dbg(tuple, key_data->key,
+	return -tuple_compare_with_key_hint(tuple, key_data->key,
 				       key_data->part_count, self->key_def, hint);
 }
 
