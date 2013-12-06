@@ -194,12 +194,11 @@ class TarantoolServer(Server):
                 print "  Found old vardir, deleting..."
             self.kill_old_server()
             self.cleanup()
+        elif (self.mem == True and check_tmpfs_exists() and
+              os.path.basename(self.vardir) == self.vardir):
+            create_tmpfs_vardir(self.vardir)
         else:
-            if (self.mem == True and check_tmpfs_exists() and
-                os.path.basename(self.vardir) == self.vardir):
-                create_tmpfs_vardir(self.vardir)
-            else:
-                os.makedirs(self.vardir)
+            os.makedirs(self.vardir)
 
         shutil.copy(self.config,
                     os.path.join(self.vardir, self.default_config_name))
