@@ -77,12 +77,10 @@ def check_valgrind_log(path_to_log):
     return os.path.exists(path_to_log) and os.path.getsize(path_to_log) != 0
 
 
-def print_tail_n(filename, num_lines):
+def return_tail_n(filename, num_lines):
     """Print N last lines of a file."""
     with open(filename, "r+") as logfile:
-        tail_n = collections.deque(logfile, num_lines)
-        for line in tail_n:
-            sys.stdout.write(line)
+        return collections.deque(logfile, num_lines)
 
 
 class Test:
@@ -162,51 +160,46 @@ class Test:
             check_valgrind_log(server.valgrind_log) == False
 
         if self.skip:
-            print "[ skip ]"
             if os.path.exists(self.tmp_result):
                 os.remove(self.tmp_result)
+            return ("skip",)
         elif self.is_executed_ok and self.is_equal_result and self.is_valgrind_clean:
-            print "[ pass ]"
             if os.path.exists(self.tmp_result):
                 os.remove(self.tmp_result)
+            return ("pass",)
         elif (self.is_executed_ok and not self.is_equal_result and not
               os.path.isfile(self.result)):
             os.rename(self.tmp_result, self.result)
-            print "[ NEW ]"
+            return ("new",)
         else:
             os.rename(self.tmp_result, self.reject)
-            print "[ fail ]"
 
             where = ""
             if not self.is_executed_ok:
-                self.print_diagnostics(self.reject, "Test failed! Last 10 lines of the result file:")
+                data = self.return_diagnostics(self.reject, "Test failed! Last 10 lines of the result file:")
                 where = ": test execution aborted, reason '{0}'".format(diagnostics)
             elif not self.is_equal_result:
-                self.print_unidiff()
+                data = self.return_unidiff()
                 where = ": wrong test output"
             elif not self.is_valgrind_clean:
                 os.remove(self.reject)
-                self.print_diagnostics(server.valgrind_log, "Test failed! Last 10 lines of valgrind.log:")
+                data = self.return_diagnostics(server.valgrind_log, "Test failed! Last 10 lines of valgrind.log:")
                 where = ": there were warnings in valgrind.log"
+            return ("fail", data, where)
 
-            if not self.args.is_force:
-                raise RuntimeError("Failed to run test " + self.name + where)
-
-    def print_diagnostics(self, logfile, message):
+    def return_diagnostics(self, logfile, message):
         """Print 10 lines of client program output leading to test
         failure. Used to diagnose a failure of the client program"""
 
-        print message
-        print_tail_n(logfile, 10)
+        return (message, [i for i in return_tail_n(logfile, 10)])
 
-    def print_unidiff(self):
+    def return_unidiff(self):
         """Print a unified diff between .test and .result files. Used
         to establish the cause of a failure when .test differs
         from .result."""
 
         print "Test failed! Result content mismatch:"
-        with open(self.result, "r") as result:
-            with open(self.reject, "r") as reject:
+        with open(self.result, "r") as result, open(self.reject, "r") as reject:
                 result_time = time.ctime(os.stat(self.result).st_mtime)
                 reject_time = time.ctime(os.stat(self.reject).st_mtime)
                 diff = difflib.unified_diff(result.readlines(),
@@ -215,8 +208,8 @@ class Test:
                                             self.reject,
                                             result_time,
                                             reject_time)
-                for line in diff:
-                    sys.stdout.write(line)
+                return [i for i in diff]
+
 
 class TestSuite:
     """Each test suite contains a number of related tests files,
@@ -332,7 +325,8 @@ class TestSuite:
 
         if self.args.valgrind and check_valgrind_log(self.server.valgrind_log):
             print "  Error! There were warnings/errors in valgrind log file:"
-            print_tail_n(self.server.valgrind_log, 20)
+            for i in return_tail_n(self.server.valgrind_log, 20):
+                print i
             return ['valgrind error in ' + self.suite_path]
         return failed_tests
 
