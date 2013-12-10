@@ -25,7 +25,7 @@ space_2:insert('item 3', 'california', 'uber alles')
 space_2:insert('item 4', 'georgia', 'on my mind')
 iter_2, tuple_2 = space_2.index['minmax']:next('california')
 tuple_2
-_, tuple_2 = space_2.index['minmax']:next(iter_1)
+_, tuple_2 = space_2.index['minmax']:next(iter_2)
 tuple_2
 space_2:delete('item 1')
 space_2:delete('item 2')
@@ -38,4 +38,5 @@ space_2:truncate()
 --
 space_2:insert('1', 'hello', 'world')
 space_2:insert('2', 'hello', 'world')
+box.fiber.sleep(0.01)
 space_2:drop()

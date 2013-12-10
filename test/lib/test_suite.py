@@ -170,7 +170,7 @@ class Test:
         elif (self.is_executed_ok and not self.is_equal_result and not
               os.path.isfile(self.result)):
             os.rename(self.tmp_result, self.result)
-            return ("new",)
+            return ("NEW",)
         else:
             os.rename(self.tmp_result, self.reject)
 
@@ -198,7 +198,7 @@ class Test:
         to establish the cause of a failure when .test differs
         from .result."""
 
-        print "Test failed! Result content mismatch:"
+        data = "Test failed! Result content mismatch:"
         with open(self.result, "r") as result, open(self.reject, "r") as reject:
                 result_time = time.ctime(os.stat(self.result).st_mtime)
                 reject_time = time.ctime(os.stat(self.reject).st_mtime)
@@ -208,7 +208,7 @@ class Test:
                                             self.reject,
                                             result_time,
                                             reject_time)
-                return [i for i in diff]
+                return (data, [i for i in diff])
 
 
 class TestSuite:
@@ -295,6 +295,7 @@ class TestSuite:
         print "TEST".ljust(48), "RESULT"
         print shortsep
         failed_tests = []
+        status = None
         try:
             for test in self.tests:
                 sys.stdout.write(test.name.ljust(48))
@@ -307,10 +308,19 @@ class TestSuite:
                     or not self.server.debug and test_name in self.ini["release_disabled"]
                     or self.args.valgrind and test_name in self.ini["valgrind_disabled"]):
                     print "[ disabled ]"
+                    continue
                 else:
-                    test.run(self.server)
+                    status = test.run(self.server)
                     if not test.passed():
                         failed_tests.append(test.name)
+                print "[ {0} ]".format(status[0])
+                if status[0] == 'fail':
+                    print status[1][0]
+                    for i in status[1][1]:
+                        print i.replace('\n','')
+                    if not self.args.is_force:
+                        raise RuntimeError("Failed to run test " + test.name + status[2])
+
         except (KeyboardInterrupt) as e:
             print '\n',
             raise
