@@ -17,13 +17,13 @@ if(DTRACE_FOUND AND ENABLE_DTRACE)
     set(DTRACE_O_DIR ${CMAKE_CURRENT_BINARY_DIR}/dtrace)
     if(ENABLE_DTRACE_BUILTIN)
         add_definitions(-DENABLE_DTRACE_BUILTIN)
-        set(DTRACE_D_FILE ${PROJECT_SOURCE_DIR}/include/builtin_provider.d)
+        set(DTRACE_D_FILE ${PROJECT_SOURCE_DIR}/extra/dtrace/provider/builtin_provider.d)
     else()
-        set(DTRACE_D_FILE ${PROJECT_SOURCE_DIR}/include/tarantool_provider.d)
+        set(DTRACE_D_FILE ${PROJECT_SOURCE_DIR}/extra/dtrace/provider/tarantool_provider.d)
     endif(ENABLE_DTRACE_BUILTIN)
     execute_process(COMMAND mkdir ${DTRACE_O_DIR})
     message(STATUS "DTrace obj dir ${DTRACE_O_DIR}")
-    dtrace_gen_h(${DTRACE_D_FILE} ${PROJECT_SOURCE_DIR}/include/tarantool_provider.h)
+    dtrace_gen_h(${DTRACE_D_FILE} ${PROJECT_SOURCE_DIR}/src/tarantool_provider.h)
     set (dtrace_headers
         lua-cjson/cjson_dtrace.h
         coro/coro_dtrace.h

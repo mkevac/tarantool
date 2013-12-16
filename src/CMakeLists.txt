@@ -157,7 +157,8 @@ if (ENABLE_DTRACE)
     if (ENABLE_DTRACE_USDT)
         set (common_libraries ${common_libraries} ${LIBUSDT_LIBRARIES})
     endif()
-else()
+endif()
+if (TARGET_OS_DARWIN OR NOT ENABLE_DTRACE)
     list(APPEND common_libraries
         ${LIBEV_LIBRARIES}
         ${LIBCORO_LIBRARIES}
