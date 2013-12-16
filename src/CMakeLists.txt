@@ -21,6 +21,7 @@ endif()
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/src/lua)
 set(lua_sources)
 lua_source(lua_sources lua/uuid.lua)
+lua_source(lua_sources lua/session.lua)
 set(bin_sources)
 bin_source(bin_sources bootstrap.snap bootstrap.h)
 
@@ -34,17 +35,12 @@ set_property(DIRECTORY PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${lua_sources})
 #
 set (recompiled_sources
      ${CMAKE_SOURCE_DIR}/src/tarantool.cc
-     ${CMAKE_SOURCE_DIR}/src/opts.c
      ${CMAKE_SOURCE_DIR}/src/lua/init.cc
-     ${CMAKE_SOURCE_DIR}/src/say.cc
-     ${CMAKE_SOURCE_DIR}/src/assoc.cc
-     ${CMAKE_SOURCE_DIR}/src/replication.cc
-     ${CMAKE_SOURCE_DIR}/src/fiber.cc)
+     ${CMAKE_SOURCE_DIR}/src/replication.cc)
 
 set (common_sources
-     tbuf.c
-     rlist.c
      memory.cc
+     fiber.cc
      util.cc
      sio.cc
      evio.cc
@@ -59,7 +55,6 @@ set (common_sources
      log_io.cc
      recovery.cc
      admin.cc
-     cpu_feature.c
      replica.cc
      replica.1.5.cc
      iproto.cc
@@ -67,13 +62,19 @@ set (common_sources
      session.cc
      object.cc
      exception.cc
-     errcode.c
-     errinj.cc
-     fio.c
-     crc32.c
-     rope.c
      ipc.cc
+     errinj.cc
+     errcode.c
+     assoc.c
+     say.c
+     fio.c
+     plugin.c
+     crc32.c
+     tbuf.c
+     opts.c
+     cpu_feature.c
      lua/fiber.cc
+     lua/trigger.cc
      lua/admin.cc
      lua/info.cc
      lua/stat.cc
@@ -103,7 +104,7 @@ set_source_files_compile_flags(${common_sources})
 add_library(core STATIC ${common_sources})
 add_dependencies(core generate_headers)
 
-set (common_libraries cfg core small)
+set (common_libraries cfg core small salad)
 
 list(APPEND common_libraries
     ${LIBEIO_LIBRARIES}

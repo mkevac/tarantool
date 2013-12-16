@@ -31,10 +31,10 @@
 
 #include "third_party/queue.h"
 
-#include <rope.h>
+#include "salad/rope.h"
 #include <exception.h>
 #include <pickle.h>
-#include <lib/msgpuck/msgpuck.h>
+#include "msgpuck/msgpuck.h"
 
 /** UPDATE request implementation.
  * UPDATE request is represented by a sequence of operations, each

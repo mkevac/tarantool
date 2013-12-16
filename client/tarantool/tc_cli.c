@@ -491,15 +491,20 @@ int tc_cli(void)
 		if (isatty(STDIN_FILENO)) /* Enable history on readline use only */
 			add_history(cmd.data);
 		tc_buf_cmdfy(&cmd, tc.opt.delim_len); /* Create admin cmd from STR */
-		if (delim_exists && tc_buf_str_isempty(&cmd))
-			goto next;
-		enum tc_cli_cmd_ret ret = tc_cli_cmd(cmd.data,
-						     cmd.used - 1);
-next:
-		tc_buf_clear(&cmd);
-		if (ret == TC_CLI_EXIT || feof(stdin)) {
-			tc_buf_free(&cmd);
-			break;
+		enum tc_cli_cmd_ret ret;
+		if (delim_exists && tc_buf_str_isempty(&cmd)) {
+			tc_buf_clear(&cmd);
+			if (feof(stdin)) {
+				tc_buf_free(&cmd);
+				break;
+			}
+		} else {
+			ret = tc_cli_cmd(cmd.data, cmd.used - 1);
+			tc_buf_clear(&cmd);
+			if (ret == TC_CLI_EXIT || feof(stdin)) {
+				tc_buf_free(&cmd);
+				break;
+			}
 		}
 	}
 

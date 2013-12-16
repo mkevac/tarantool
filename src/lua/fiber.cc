@@ -26,32 +26,17 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#include "lua/init.h"
-#include "tarantool.h"
-#include "box/box.h"
-#include "tbuf.h"
+#include "lua/fiber.h"
+
+#include <fiber.h>
+#include "lua/utils.h"
 
 extern "C" {
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
-#include <lj_obj.h>
-#include <lj_ctype.h>
-#include <lj_cdata.h>
-#include <lj_cconv.h>
-#include <lj_state.h>
 } /* extern "C" */
 
-#include "lua/fiber.h"
-#include "fiber.h"
-
-#include <sys/types.h>
-#include <ctype.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <dlfcn.h>
-#include <dirent.h>
-#include <stdio.h>
 /*
  * }}}
  */
@@ -409,28 +394,18 @@ box_lua_fiber_run(va_list ap __attribute__((unused)))
 	 * collected when detached.
 	 */
 	lua_pushthread(L);
-	int coro_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	LuarefGuard coro_guard(L);
 	/*
 	 * Lua coroutine.resume() returns true/false for
 	 * completion status plus whatever the coroutine main
 	 * function returns. Follow this style here.
 	 */
-	auto cleanup = [=] {
-		/*
-		 * If the coroutine has detached itself, collect
-		 * its resources here.
-		 */
-		luaL_unref(L, LUA_REGISTRYINDEX, coro_ref);
-	};
-
 	try {
-		lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
+		lbox_call(L, lua_gettop(L) - 1, LUA_MULTRET);
 		/* push completion status */
 		lua_pushboolean(L, true);
 		/* move 'true' to stack start */
 		lua_insert(L, 1);
-
-		cleanup();
 	} catch (const FiberCancelException &e) {
 		if (box_lua_fiber_get_coro(L, fiber)) {
 			struct fiber *caller = box_lua_fiber_get_caller(L);
@@ -444,7 +419,6 @@ box_lua_fiber_run(va_list ap __attribute__((unused)))
 		 * scheduled, and cancel() is synchronous.
 		 */
 
-		cleanup();
 		throw;
 	} catch (const Exception &e) {
 		/* pop any possible garbage */
@@ -456,20 +430,6 @@ box_lua_fiber_run(va_list ap __attribute__((unused)))
 
 		/* Always log the error. */
 		e.log();
-
-		cleanup();
-	} catch (...) {
-		lua_settop(L, 1);
-		/*
-		 * The error message is already there.
-		 * Add completion status.
-		 */
-		lua_pushboolean(L, false);
-		lua_insert(L, -2);
-		/* Always log the error. */
-		say_error("%s", lua_tostring(L, -1));
-
-		cleanup();
 	}
 	/*
 	 * L stack contains nothing but call results.
@@ -587,25 +547,14 @@ lbox_fiber_resume(struct lua_State *L)
 static void
 box_lua_fiber_run_detached(va_list ap)
 {
-	int coro_ref = va_arg(ap, int);
+	LuarefGuard coro_guard(va_arg(ap, int));
 	struct lua_State *L = va_arg(ap, struct lua_State *);
-	auto cleanup = [=] {
-		luaL_unref(L, LUA_REGISTRYINDEX, coro_ref);
-	};
 	try {
-		lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
-		cleanup();
+		lbox_call(L, lua_gettop(L) - 1, LUA_MULTRET);
 	} catch (const FiberCancelException &e) {
-		cleanup();
 		throw;
 	} catch (const Exception &e) {
 		e.log();
-		cleanup();
-	} catch (...) {
-		lua_settop(L, 1);
-		if (lua_tostring(L, -1) != NULL)
-			say_error("%s", lua_tostring(L, -1));
-		cleanup();
 	}
 }
 
@@ -850,7 +799,7 @@ tarantool_lua_fiber_init(struct lua_State *L)
 {
 	luaL_register(L, fiberlib_name, fiberlib);
 	lua_pop(L, 1);
-	tarantool_lua_register_type(L, fiberlib_name, lbox_fiber_meta);
+	luaL_register_type(L, fiberlib_name, lbox_fiber_meta);
 }
 
 /*

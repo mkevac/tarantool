@@ -27,9 +27,8 @@
  * SUCH DAMAGE.
  */
 
-#include "lua/plugin.h"
 #include "lua/info.h"
-#include "lua/init.h"
+#include "lua/utils.h"
 
 extern "C" {
 #include <lua.h>
@@ -37,8 +36,6 @@ extern "C" {
 #include <lualib.h>
 } /* extern "C" */
 
-#include <say.h>
-#include <string.h>
 #include <recovery.h>
 #include "tarantool.h"
 #include "box/box.h"

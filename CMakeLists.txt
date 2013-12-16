@@ -106,7 +106,7 @@ add_custom_target(tags COMMAND ctags -R -f tags
 #
 set (CPACK_PACKAGE_VERSION_MAJOR "1")
 set (CPACK_PACKAGE_VERSION_MINOR "6")
-set (CPACK_PACKAGE_VERSION_PATCH "0")
+set (CPACK_PACKAGE_VERSION_PATCH "1")
 
 set (PACKAGE_VERSION "")
 
@@ -147,11 +147,10 @@ endif()
 #
 # Specify where to look for include files.
 #
+include_directories(${PROJECT_SOURCE_DIR}/src)
+include_directories(${PROJECT_BINARY_DIR}/src)
+include_directories(${PROJECT_SOURCE_DIR}/src/lib)
 include_directories("${PROJECT_SOURCE_DIR}")
-include_directories("${PROJECT_SOURCE_DIR}/src") # for lib/
-include_directories("${PROJECT_SOURCE_DIR}/include")
-include_directories("${PROJECT_BINARY_DIR}/include")
-include_directories("${PROJECT_SOURCE_DIR}/third_party")
 #
 # Specify prefixes
 #
@@ -395,8 +394,8 @@ set(TARANTOOL_CXX_COMPILER ${CMAKE_CXX_COMPILER})
 # of the script to make sure all variables are set.
 #
 configure_file(
-    "${PROJECT_SOURCE_DIR}/include/tarantool/config.h.cmake"
-    "${PROJECT_BINARY_DIR}/include/tarantool/config.h"
+    "${PROJECT_SOURCE_DIR}/src/trivia/config.h.cmake"
+    "${PROJECT_BINARY_DIR}/src/trivia/config.h"
     )
 configure_file(
     "${PROJECT_SOURCE_DIR}/doc/tnt.ent.cmake"

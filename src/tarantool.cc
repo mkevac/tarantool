@@ -27,7 +27,7 @@
  * SUCH DAMAGE.
  */
 #include "tarantool.h"
-#include "tarantool/config.h"
+#include "trivia/config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,17 +49,16 @@
 #include <replication.h>
 #include <fiber.h>
 #include <coeio.h>
+#include "iobuf.h"
 #include <iproto.h>
 #include "mutex.h"
-#include <recovery.h>
-#include "log_io.h"
 #include <crc32.h>
 #include "memory.h"
 #include <salloc.h>
 #include <say.h>
 #include <stat.h>
 #include <limits.h>
-#include "tarantool/util.h"
+#include "trivia/util.h"
 extern "C" {
 #include <cfg/warning.h>
 #include <cfg/tarantool_box_cfg.h>
@@ -75,8 +74,8 @@ extern "C" {
 static pid_t master_pid;
 const char *cfg_filename = NULL;
 char *cfg_filename_fullpath = NULL;
-char *binary_filename;
 char *custom_proc_title;
+char status[64] = "unknown";
 char **main_argv;
 int main_argc;
 static void *main_opt = NULL;
@@ -85,31 +84,36 @@ struct tarantool_cfg cfg;
 static ev_signal ev_sigs[4];
 static const int ev_sig_count = sizeof(ev_sigs)/sizeof(*ev_sigs);
 
-int snapshot_pid = 0; /* snapshot processes pid */
-uint32_t snapshot_version = 0;
-
 extern const void *opt_def;
 
-static int
-core_check_config(struct tarantool_cfg *conf)
-{
-	if (strindex(wal_mode_STRS, conf->wal_mode,
-		     WAL_MODE_MAX) == WAL_MODE_MAX) {
-		out_warning(CNF_OK, "wal_mode %s is not recognized", conf->wal_mode);
-		return -1;
-	}
-	return 0;
-}
+/* defined in third_party/proctitle.c */
+extern "C" {
+char **init_set_proc_title(int argc, char **argv);
+void free_proc_title(int argc, char **argv);
+void set_proc_title(const char *format, ...);
+} /* extern "C" */
 
 void
-title(const char *fmt, ...)
+title(const char *role, const char *fmt, ...)
 {
+	(void) role;
+
 	va_list ap;
 	char buf[128], *bufptr = buf, *bufend = buf + sizeof(buf);
+	char *statusptr = status, *statusend = status + sizeof(status);
+	statusptr += snprintf(statusptr, statusend - statusptr, "%s", role);
+	bufptr += snprintf(bufptr, bufend - bufptr, "%s%s", role,
+			    custom_proc_title);
 
-	va_start(ap, fmt);
-	bufptr += vsnprintf(bufptr, bufend - bufptr, fmt, ap);
-	va_end(ap);
+	if (fmt != NULL) {
+		const char *s = statusptr;
+		statusptr += snprintf(statusptr, statusend - statusptr, "/");
+		va_start(ap, fmt);
+		statusptr += vsnprintf(statusptr, statusend - statusptr,
+				       fmt, ap);
+		va_end(ap);
+		bufptr += snprintf(bufptr, bufend - bufptr, "%s", s);
+	}
 
 	int ports[] = { cfg.primary_port, cfg.secondary_port,
 			cfg.admin_port, cfg.replication_port };
@@ -163,9 +167,6 @@ load_cfg(struct tarantool_cfg *conf, int32_t check_rdonly)
 		return -1;
 	}
 
-	if (core_check_config(conf) != 0)
-		return -1;
-
 	if (replication_check_config(conf) != 0)
 		return -1;
 
@@ -176,34 +177,6 @@ static int
 core_reload_config(const struct tarantool_cfg *old_conf,
 		   const struct tarantool_cfg *new_conf)
 {
-	if (strcasecmp(old_conf->wal_mode, new_conf->wal_mode) != 0 ||
-	    old_conf->wal_fsync_delay != new_conf->wal_fsync_delay) {
-
-		double new_delay = new_conf->wal_fsync_delay;
-
-		/* Mode has changed: */
-		if (strcasecmp(old_conf->wal_mode, new_conf->wal_mode)) {
-			if (strcasecmp(old_conf->wal_mode, "fsync") == 0 ||
-			    strcasecmp(new_conf->wal_mode, "fsync") == 0) {
-				out_warning(CNF_OK, "wal_mode cannot switch to/from fsync");
-				return -1;
-			}
-		}
-
-		/*
-		 * Unless wal_mode=fsync_delay, wal_fsync_delay is
-		 * irrelevant and must be 0.
-		 */
-		if (strcasecmp(new_conf->wal_mode, "fsync_delay") != 0)
-			new_delay = 0.0;
-
-
-		recovery_update_mode(recovery_state, new_conf->wal_mode, new_delay);
-	}
-
-	if (old_conf->snap_io_rate_limit != new_conf->snap_io_rate_limit)
-		recovery_update_io_rate_limit(recovery_state, new_conf->snap_io_rate_limit);
-
 	if (old_conf->io_collect_interval != new_conf->io_collect_interval)
 		ev_set_io_collect_interval(new_conf->io_collect_interval);
 
@@ -277,7 +250,7 @@ reload_cfg()
 
 	/* All OK, activate the config. */
 	swap_tarantool_cfg(&cfg, &new_cfg);
-	tarantool_lua_load_cfg(tarantool_L, &cfg);
+	tarantool_lua_load_cfg(&cfg);
 
 	return 0;
 }
@@ -323,51 +296,6 @@ tarantool_uptime(void)
 	return ev_now() - start_time;
 }
 
-int
-snapshot(void)
-{
-	if (snapshot_pid)
-		return EINPROGRESS;
-
-
-	pid_t p = fork();
-	if (p < 0) {
-		say_syserror("fork");
-		return -1;
-	}
-	if (p > 0) {
-		snapshot_pid = p;
-		/* increment snapshot version */
-		snapshot_version++;
-		int status = wait_for_child(p);
-		snapshot_pid = 0;
-		return (WIFSIGNALED(status) ? EINTR : WEXITSTATUS(status));
-	}
-
-	salloc_protect();
-
-	fiber_set_name(fiber, "dumper");
-	set_proc_title("dumper (%" PRIu32 ")", getppid());
-
-	/*
-	 * Safety: make sure we don't double-write
-	 * parent stdio buffers at exit().
-	 */
-	close_all_xcpt(1, sayfd);
-	/*
-	 * We must avoid double destruction of tuples on exit.
-	 * Since there is no way to remove existing handlers
-	 * registered in the master process, and snapshot_save()
-	 * may call exit(), push a top-level handler which will do
-	 * _exit() for us.
-	 */
-	snapshot_save(recovery_state, box_snapshot);
-
-	exit(EXIT_SUCCESS);
-	return 0;
-}
-
-
 /**
 * Create snapshot from signal handler (SIGUSR1)
 */
@@ -382,7 +310,7 @@ sig_snapshot(struct ev_signal *w, int revents)
 			" the signal is ignored");
 		return;
 	}
-	fiber_call(fiber_new("snapshot", (fiber_func)snapshot));
+	fiber_call(fiber_new("snapshot", (fiber_func)box_snapshot));
 }
 
 static void
@@ -560,7 +488,7 @@ create_pid(void)
 	/*
 	 * fopen() is not guaranteed to set the seek position to
 	 * the beginning of file according to ANSI C (and, e.g.,
-	 * on FreeBSD.
+	 * on FreeBSD).
 	 */
 	if (fseeko(f, 0, SEEK_SET) != 0)
 		panic_syserror("can't fseek to the beginning of pid file");
@@ -613,18 +541,6 @@ error:
 }
 
 void
-tarantool_lua_free()
-{
-	/*
-	 * Got to be done prior to anything else, since GC
-	 * handlers can refer to other subsystems (e.g. fibers).
-	 */
-	if (tarantool_L)
-		tarantool_lua_close(tarantool_L);
-	tarantool_L = NULL;
-}
-
-void
 tarantool_free(void)
 {
 	/* Do nothing in a fork. */
@@ -633,7 +549,6 @@ tarantool_free(void)
 	signal_free();
 	tarantool_lua_free();
 	box_free();
-	recovery_free();
 	stat_free();
 
 	if (cfg_filename_fullpath)
@@ -693,7 +608,7 @@ main(int argc, char **argv)
 
 	void *opt = gopt_sort(&argc, (const char **)argv, opt_def);
 	main_opt = opt;
-	binary_filename = argv[0];
+	say_init(argv[0], &cfg.log_level);
 
 	if (gopt(opt, 'V')) {
 		printf("Tarantool %s\n", tarantool_version());
@@ -830,9 +745,7 @@ main(int argc, char **argv)
 	}
 
 	if (gopt(opt, 'I')) {
-		struct log_dir dir = snap_dir;
-		dir.dirname = cfg.snap_dir;
-		init_storage(&dir, NULL);
+		box_init_storage(cfg.snap_dir);
 		exit(EXIT_SUCCESS);
 	}
 
@@ -857,7 +770,7 @@ main(int argc, char **argv)
 		strcat(custom_proc_title, cfg.custom_proc_title);
 	}
 
-	say_logger_init(cfg.logger_nonblock);
+	say_logger_init(cfg.logger, cfg.logger_nonblock);
 
 	/* main core cleanup routine */
 	atexit(tarantool_free);
@@ -865,23 +778,19 @@ main(int argc, char **argv)
 	ev_default_loop(EVFLAG_AUTO);
 	fiber_init();
 	replication_prefork();
+	iobuf_init_readahead(cfg.readahead);
 	coeio_init();
-	salloc_init(cfg.slab_alloc_arena * (1 << 30) /* GB */,
-		    cfg.slab_alloc_minimal, cfg.slab_alloc_factor);
+	if (!salloc_init(cfg.slab_alloc_arena * (1 << 30) /* GB */,
+		    cfg.slab_alloc_minimal, cfg.slab_alloc_factor))
+		panic("can't initialize slab allocator");
 
 	signal_init();
 
 	try {
 		say_crit("version %s", tarantool_version());
-		tarantool_L = tarantool_lua_init();
+		tarantool_lua_init();
 		box_init();
-		tarantool_lua_load_cfg(tarantool_L, &cfg);
-		/*
-		 * init iproto before admin:
-		 * recovery is finished on bind to the primary port,
-		 * and it has to happen before requests on the
-		 * administrative port start to arrive.
-		 */
+		tarantool_lua_load_cfg(&cfg);
 		iproto_init(cfg.bind_ipaddr, cfg.primary_port,
 			    cfg.secondary_port);
 		admin_init(cfg.bind_ipaddr, cfg.admin_port);
@@ -893,7 +802,7 @@ main(int argc, char **argv)
 		 * is why script must run only after the server was fully
 		 * initialized.
 		 */
-		tarantool_lua_load_init_script(tarantool_L);
+		tarantool_lua_load_init_script();
 		region_free(&fiber->gc);
 		say_crit("log level %i", cfg.log_level);
 		say_crit("entering the event loop");

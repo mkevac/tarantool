@@ -33,9 +33,31 @@ admin("string.gmatch(package_path, '([^;]*)')()")
 admin("string.gmatch(package_cpath, '([^;]*)')()")
 admin("mod.test(10, 15)")
 
+sys.stdout.pop_filter()
+
+print """
+# Bug#99 Salloc initialization is not checked on startup
+#  (https://github.com/tarantool/tarantool/issues/99)
+"""
+# stop current server
+server.stop()
+try:
+    server.deploy("box/tarantool_bug_gh-99.cfg")
+except OSError as e:
+    print("ok")
+
+print """
+# Bug#100 Segmentation fault if rows_per_wal = 1
+#  (https://github.com/tarantool/tarantool/issues/100)
+"""
+# stop current server
+server.stop()
+sys.stdout.push_filter("(/\S+)+/tarantool", "tarantool")
+server.test_option("-c " + os.path.join(os.getcwd(), "box/tarantool_bug_gh100.cfg"))
+sys.stdout.pop_filter()
+
 # restore default server
 server.stop()
 shutil.rmtree(script_dir_path, True)
 server.deploy(self.suite_ini["config"])
 
-sys.stdout.pop_filter()

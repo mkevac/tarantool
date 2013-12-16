@@ -121,7 +121,7 @@ mh_index_hash_key(const char *key, const struct key_def *key_def)
 typedef struct tuple * mh_node_t;
 #define mh_name _index
 #define MH_SOURCE 1
-#include <mhash.h>
+#include "salad/mhash.h"
 
 /* {{{ HashIndex Iterators ****************************************/
 
@@ -194,6 +194,12 @@ size_t
 HashIndex::size() const
 {
 	return mh_size(hash);
+}
+
+size_t
+HashIndex::memsize() const
+{
+        return mh_index_memsize(hash);
 }
 
 struct tuple *

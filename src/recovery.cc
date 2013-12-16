@@ -213,8 +213,7 @@ recovery_init(const char *snap_dirname, const char *wal_dirname,
 	struct recovery_state *r = recovery_state;
 	recovery_update_mode(r, "none", 0);
 
-	if (rows_per_wal <= 1)
-		panic("unacceptable value of 'rows_per_wal'");
+	assert(rows_per_wal > 1);
 
 	r->row_handler = row_handler;
 	r->row_handler_param = row_handler_param;
@@ -1283,7 +1282,8 @@ snapshot_write_row(struct log_io *l, struct fio_batch *batch,
 			 * filesystem cache, otherwise the limit is
 			 * not really enforced.
 			 */
-			fdatasync(fileno(l->f));
+			if (bytes > recovery_state->snap_io_rate_limit)
+				fdatasync(fileno(l->f));
 		}
 		while (bytes >= recovery_state->snap_io_rate_limit) {
 			ev_now_update();
@@ -1338,51 +1338,6 @@ snapshot_save(struct recovery_state *r,
 
 	say_info("done");
 }
-
-/**
- * Read WAL/SNAPSHOT and invoke a callback on every record (used
- * for --cat command line option).
- * @retval 0  success
- * @retval -1 error
- */
-
-int
-read_log(const char *filename,
-	 row_handler *xlog_handler, row_handler *snap_handler,
-	 void *param)
-{
-	struct log_dir *dir;
-	row_handler *h;
-
-	if (strstr(filename, wal_dir.filename_ext)) {
-		dir = &wal_dir;
-		h = xlog_handler;
-	} else if (strstr(filename, snap_dir.filename_ext)) {
-		dir = &snap_dir;
-		h = snap_handler;
-	} else {
-		say_error("don't know how to read `%s'", filename);
-		return -1;
-	}
-
-	FILE *f = fopen(filename, "r");
-	struct log_io *l = log_io_open(dir, LOG_READ, filename, NONE, f);
-	if (l == NULL)
-		return -1;
-
-	struct log_io_cursor i;
-
-	log_io_cursor_open(&i, l);
-	const char *row;
-	uint32_t rowlen;
-	while ((row = log_io_cursor_next(&i, &rowlen)))
-		h(param, row, rowlen);
-
-	log_io_cursor_close(&i);
-	log_io_close(&l);
-	return 0;
-}
-
 
 /* }}} */
 

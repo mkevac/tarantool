@@ -27,15 +27,63 @@
  * SUCH DAMAGE.
  */
 #include "box_lua_space.h"
+#include "lua/utils.h"
+#include "lua/trigger.h"
 
 extern "C" {
-#include <lua.h>
-#include <lauxlib.h>
-#include <lualib.h>
+	#include <lua.h>
+	#include <lauxlib.h>
+	#include <lualib.h>
 } /* extern "C" */
 
 #include "space.h"
-#include <say.h>
+#include "schema.h"
+#include <trigger.h>
+#include "salad/rlist.h"
+#include <scoped_guard.h>
+#include "box_lua.h"
+#include "txn.h"
+
+/**
+ * Trigger function for all spaces
+ */
+static void
+lbox_space_on_replace_trigger(struct trigger *trigger, void *event)
+{
+	struct txn *txn = (struct txn *) event;
+	lua_State *L = lua_newthread(tarantool_L);
+	LuarefGuard coro_guard(tarantool_L);
+
+	lua_rawgeti(L, LUA_REGISTRYINDEX, (intptr_t) trigger->data);
+
+	lbox_pushtuple(L, txn->old_tuple);
+	lbox_pushtuple(L, txn->new_tuple);
+	/* @todo: maybe the space object has to be here */
+	lua_pushstring(L, txn->space->def.name);
+
+	lbox_call(L, 3, 0);
+}
+
+/**
+ * Set/Reset/Get space.on_replace trigger
+ */
+static int
+lbox_space_on_replace(struct lua_State *L)
+{
+	int top = lua_gettop(L);
+
+	if (top < 1 || !lua_istable(L, 1)) {
+		luaL_error(L,
+	   "usage: space:on_replace(function | nil, [function | nil])");
+	}
+	lua_getfield(L, 1, "n"); /* Get space id. */
+	struct space *space = space_find(lua_tointeger(L, lua_gettop(L)));
+	lua_pop(L, 1);
+
+	return lbox_trigger_reset(L, 3,
+				  &space->on_replace,
+				  lbox_space_on_replace_trigger);
+}
 
 /**
  * Make a single space available in Lua,
@@ -71,6 +119,12 @@ lbox_fillspace(struct lua_State *L, struct space *space, int i)
 	lua_pushboolean(L, space_index(space, 0) != 0);
 	lua_settable(L, i);
 
+
+        /* space:on_replace */
+        lua_pushstring(L, "on_replace");
+        lua_pushcfunction(L, lbox_space_on_replace);
+        lua_settable(L, i);
+
 	lua_getfield(L, i, "index");
 	if (lua_isnil(L, -1)) {
 		lua_pop(L, 1);
@@ -93,13 +147,13 @@ lbox_fillspace(struct lua_State *L, struct space *space, int i)
 	 * Fill space.index table with
 	 * all defined indexes.
 	 */
-	for (int i = 0; i <= space->index_id_max; i++) {
-		Index *index = space_index(space, i);
+	for (int k = 0; k <= space->index_id_max; k++) {
+		Index *index = space_index(space, k);
 		if (index == NULL)
 			continue;
 		struct key_def *key_def = index->key_def;
 		lua_pushnumber(L, key_def->iid);
-		lua_newtable(L);		/* space.index[i] */
+		lua_newtable(L);		/* space.index[k] */
 
 		lua_pushboolean(L, key_def->is_unique);
 		lua_setfield(L, -2, "unique");
@@ -130,12 +184,12 @@ lbox_fillspace(struct lua_State *L, struct space *space, int i)
 			lua_pushnumber(L, key_def->parts[j].fieldno);
 			lua_setfield(L, -2, "fieldno");
 
-			lua_settable(L, -3); /* index[i].key_field[j] */
+			lua_settable(L, -3); /* index[k].key_field[j] */
 		}
 
-		lua_settable(L, -3); /* space.index[i].key_field */
+		lua_settable(L, -3); /* space.index[k].key_field */
 
-		lua_settable(L, -3); /* space.index[i] */
+		lua_settable(L, -3); /* space.index[k] */
 		lua_rawgeti(L, -1, key_def->iid);
 		lua_setfield(L, -2, key_def->name);
 	}

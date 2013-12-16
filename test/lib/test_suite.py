@@ -104,8 +104,7 @@ class Test:
         self.skip_cond = rg.sub('.skipcond', name)
         self.tmp_result = os.path.join(self.args.vardir,
                                        os.path.basename(self.result))
-        self.reject = "{0}/test/{1}".format(self.args.builddir,
-                                            rg.sub('.reject', name))
+        self.reject = rg.sub('.reject', name)
         self.is_executed = False
         self.is_executed_ok = None
         self.is_equal_result = None
@@ -286,7 +285,7 @@ class TestSuite:
                       init_lua=self.ini["init_lua"], silent=False)
         if self.ini['core'] != 'unittest':
             self.ini['servers'] = {'default' : self.server}
-            self.ini['connections'] = {'default' : self.server.admin}
+            self.ini['connections'] = {'default' : [self.server.admin, 'default']}
             self.ini['vardir'] = self.args.vardir
             self.ini['builddir'] = self.args.builddir
         for i in self.ini['lua_libs']:

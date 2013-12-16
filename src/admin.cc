@@ -32,17 +32,12 @@
 #include <unistd.h>
 #include <stdlib.h>
 
-#include <fiber.h>
-#include <salloc.h>
-#include <say.h>
-#include <stat.h>
-#include <tarantool.h>
-#include <tarantool/config.h>
+#include "fiber.h"
+#include "tarantool.h"
 #include "lua/init.h"
-#include <recovery.h>
-#include <tbuf.h>
-#include "tarantool/util.h"
-#include <errinj.h>
+#include "tbuf.h"
+#include "trivia/config.h"
+#include "trivia/util.h"
 #include "coio_buf.h"
 
 extern "C" {
@@ -51,8 +46,7 @@ extern "C" {
 #include <lualib.h>
 }
 
-#include "box/box.h"
-#include "lua/init.h"
+#include "lua/utils.h"
 #include "session.h"
 #include "scoped_guard.h"
 
@@ -80,10 +74,9 @@ admin_handler(va_list ap)
 	struct sockaddr_in *addr = va_arg(ap, struct sockaddr_in *);
 	struct iobuf *iobuf = va_arg(ap, struct iobuf *);
 	lua_State *L = lua_newthread(tarantool_L);
-	int coro_ref = luaL_ref(tarantool_L, LUA_REGISTRYINDEX);
+	LuarefGuard coro_guard(tarantool_L);
 
 	auto scoped_guard = make_scoped_guard([&] {
-		luaL_unref(tarantool_L, LUA_REGISTRYINDEX, coro_ref);
 		evio_close(&coio);
 		iobuf_delete(iobuf);
 		session_destroy(fiber->sid);

@@ -32,6 +32,7 @@
 #include <exception.h>
 #include "tuple.h"
 #include "scoped_guard.h"
+#include "trigger.h"
 
 void
 space_fill_index_map(struct space *space)
@@ -62,6 +63,7 @@ space_new(struct space_def *def, struct rlist *key_list)
 		tnt_raise(LoggedError, ER_MEMORY_ISSUE,
 			  sz, "struct space", "malloc");
 
+	rlist_create(&space->on_replace);
 	auto scoped_guard = make_scoped_guard([=]
 	{
 		space_fill_index_map(space);
@@ -80,7 +82,6 @@ space_new(struct space_def *def, struct rlist *key_list)
 	}
 	space_fill_index_map(space);
 	space->engine = engine_no_keys;
-	rlist_create(&space->on_replace);
 	space->run_triggers = true;
 	scoped_guard.is_active = false;
 	return space;
@@ -93,6 +94,14 @@ space_delete(struct space *space)
 		delete space->index[j];
 	if (space->format)
 		tuple_format_ref(space->format, -1);
+
+	struct trigger *trigger, *tmp;
+	rlist_foreach_entry_safe(trigger, &space->on_replace, link, tmp) {
+		trigger_clear(trigger);
+		if (trigger->destroy)
+			trigger->destroy(trigger);
+
+	}
 	free(space);
 }
 
@@ -325,6 +334,26 @@ extern "C" void
 space_run_triggers(struct space *space, bool yesno)
 {
 	space->run_triggers = yesno;
+}
+
+struct space_stat *
+space_stat(struct space *sp)
+{
+	static __thread struct space_stat space_stat;
+
+	space_stat.n = space_id(sp);
+	int i = 0;
+	for (; i < sp->index_id_max; i++) {
+		Index *index = space_index(sp, i);
+		if (index) {
+			space_stat.index[i].n       = i;
+			space_stat.index[i].keys    = index->size();
+			space_stat.index[i].memsize = index->memsize();
+		} else
+			space_stat.index[i].n = -1;
+	}
+	space_stat.index[i].n = -1;
+	return &space_stat;
 }
 
 /* vim: set fm=marker */

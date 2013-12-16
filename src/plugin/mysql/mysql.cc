@@ -44,15 +44,15 @@ extern "C" {
 #include <errno.h>
 #include <string.h>
 #include <coeio.h>
-#include <tarantool_ev.h>
+#include "third_party/tarantool_ev.h"
 
 
-#include <lua/init.h>
+#include <lua/utils.h>
 #include <say.h>
 #include <mysql.h>
 #include <scoped_guard.h>
 
-#include <tarantool/plugin.h>
+#include <plugin.h>
 
 
 /**

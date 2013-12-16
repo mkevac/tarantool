@@ -36,7 +36,7 @@
  */
 
 #include "index.h"
-#include <lib/bitset/index.h>
+#include "bitset/index.h"
 
 struct bitset_index;
 struct bitset_expr;
@@ -51,6 +51,7 @@ public:
 				      struct tuple *new_tuple,
 				      enum dup_replace_mode mode);
 
+        virtual size_t memsize() const;
 	virtual struct iterator *allocIterator() const;
 	virtual void initIterator(struct iterator *iterator,
 				  enum iterator_type type,

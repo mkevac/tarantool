@@ -1,4 +1,4 @@
-#include "lib/small/slab_cache.h"
+#include "small/slab_cache.h"
 #include <stdio.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -6,15 +6,18 @@
 #include "unit.h"
 
 
-enum { NRUNS = 25, ITERATIONS = 1000, MAX_ALLOC = SLAB_MAX_SIZE + 9999 };
+enum { NRUNS = 25, ITERATIONS = 1000, MAX_ALLOC = 5000000 };
 static struct slab *runs[NRUNS];
 
 int main()
 {
 	srand(time(0));
 
+	struct slab_arena arena;
 	struct slab_cache cache;
-	slab_cache_create(&cache);
+
+	slab_arena_create(&arena, 0, UINT_MAX, 4000000, MAP_PRIVATE);
+	slab_cache_create(&cache, &arena, 0);
 
 	int i = 0;
 

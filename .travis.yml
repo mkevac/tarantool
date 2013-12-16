@@ -10,12 +10,11 @@ branches:
 
 install:
   - sudo apt-get update > /dev/null
-  - sudo apt-get -q install binutils-dev python-daemon python-yaml python-pexpect
+  - sudo apt-get -q install binutils-dev python-daemon python-yaml
 
 script:
   - mkdir ./build && cd ./build && cmake .. -DCMAKE_BUILD_TYPE=RelWithDebugInfo
   - make -j8
-  - make test
 
 notifications:
   irc:

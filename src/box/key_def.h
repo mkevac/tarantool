@@ -28,10 +28,10 @@
  * THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#include "tarantool/util.h"
-#include "rlist.h"
+#include "trivia/util.h"
+#include "salad/rlist.h"
 #include <exception.h>
-#include <lib/msgpuck/msgpuck.h>
+#include "msgpuck/msgpuck.h"
 
 enum {
 	BOX_SPACE_MAX = INT32_MAX,
