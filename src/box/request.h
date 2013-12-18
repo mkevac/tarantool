@@ -29,6 +29,8 @@
  * SUCH DAMAGE.
  */
 #include "trivia/util.h"
+#include "msgpuck/msgpuck.h"
+#include "tb.h"
 #include <stdbool.h>
 
 struct txn;
@@ -61,6 +63,8 @@ struct port;
 
     DO NOT use these ids!
  */
+
+#if 0
 #define REQUESTS(_)				\
         _(REPLACE, 13)				\
 	_(SELECT, 17)				\
@@ -68,6 +72,16 @@ struct port;
 	_(DELETE_1_3, 20)			\
 	_(DELETE, 21)				\
 	_(CALL, 22)
+#endif
+
+#define REQUESTS(_) \
+	_(SELECT,  32) \
+	_(INSERT,  33) \
+	_(REPLACE, 34) \
+	_(STORE,   35) \
+	_(UPDATE,  36) \
+	_(DELETE,  37) \
+	_(CALL,    38)
 
 ENUM(requests, REQUESTS);
 extern const char *requests_strs[];
@@ -82,7 +96,10 @@ const char *request_name(uint32_t type);
 
 struct request
 {
+	struct tbrequest req;
+#if 0
 	uint32_t type;
+
 	uint32_t flags;
 	union {
 		struct {
@@ -125,6 +142,7 @@ struct request
 
 	const char *data;
 	uint32_t len;
+#endif
 
 	void (*execute)(const struct request *, struct txn *, struct port *);
 };

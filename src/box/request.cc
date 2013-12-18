@@ -73,11 +73,14 @@ read_tuple(const char **reqpos, const char *reqend)
 }
 
 enum dup_replace_mode
-dup_replace_mode(uint32_t flags)
+dup_replace_mode(uint32_t type)
 {
-	return flags & BOX_ADD ? DUP_INSERT :
-		flags & BOX_REPLACE ?
-		DUP_REPLACE : DUP_REPLACE_OR_INSERT;
+	switch (type) {
+	case INSERT: return DUP_INSERT;
+	case REPLACE: return DUP_REPLACE;
+	case STORE: return DUP_REPLACE_OR_INSERT;
+	default: assert(0);
+	}
 }
 
 static void
@@ -85,15 +88,18 @@ execute_replace(const struct request *request, struct txn *txn,
 		struct port *port)
 {
 	(void) port;
-	txn_add_redo(txn, request->type, request->data, request->len);
+	txn_add_redo(txn, request->req.request_type,
+	             request->req.data,
+	             request->req.len);
 
-	struct space *space = space_find(request->r.space_no);
-	const char *tuple = request->r.tuple;
-	struct tuple *new_tuple = tuple_new(space->format, &tuple,
-					    request->r.tuple_end);
+	struct space *space = space_find(request->req.space);
+	const char *tuple = request->req.tuples; /* XXX */
+	struct tuple *new_tuple =
+		tuple_new(space->format, &tuple, request->req.tuples_end);
 	TupleGuard guard(new_tuple);
 	space_validate_tuple(space, new_tuple);
-	enum dup_replace_mode mode = dup_replace_mode(request->flags);
+	enum dup_replace_mode mode =
+		dup_replace_mode(request->req.request_type);
 	txn_replace(txn, space, NULL, new_tuple, mode);
 }
 
@@ -102,14 +108,15 @@ execute_update(const struct request *request, struct txn *txn,
 	       struct port *port)
 {
 	(void) port;
-	txn_add_redo(txn, request->type, request->data, request->len);
+	txn_add_redo(txn, request->req.request_type, request->req.data,
+	             request->req.len);
 	/* Parse UPDATE request. */
 	/** Search key  and key part count. */
 
-	struct space *space = space_find(request->u.space_no);
+	struct space *space = space_find(request->req.space);
 	Index *pk = index_find(space, 0);
 	/* Try to find the tuple by primary key. */
-	const char *key = request->u.key;
+	const char *key = request->req.keys; /* XXX */
 	uint32_t part_count = mp_decode_array(&key);
 	primary_key_validate(pk->key_def, key, part_count);
 	struct tuple *old_tuple = pk->findByKey(key, part_count);
@@ -118,11 +125,12 @@ execute_update(const struct request *request, struct txn *txn,
 		return;
 
 	/* Update the tuple. */
-	struct tuple *new_tuple = tuple_update(space->format,
-					       region_alloc_cb,
-					       &fiber->gc,
-					       old_tuple, request->u.expr,
-					       request->u.expr_end);
+	struct tuple *new_tuple =
+		tuple_update(space->format,
+		             region_alloc_cb,
+	                 &fiber->gc,
+	                 old_tuple, request->req.exprs,
+	                 request->req.exprs_end);
 	TupleGuard guard(new_tuple);
 	space_validate_tuple(space, new_tuple);
 	txn_replace(txn, space, old_tuple, new_tuple, DUP_INSERT);
@@ -135,26 +143,28 @@ execute_select(const struct request *request, struct txn *txn,
 	       struct port *port)
 {
 	(void) txn;
-	struct space *space = space_find(request->s.space_no);
-	Index *index = index_find(space, request->s.index_no);
+	struct space *space = space_find(request->req.space);
+	Index *index = index_find(space, request->req.index);
 
-	if (request->s.key_count == 0)
+	const char *keys = request->req.keys;
+	const char *keyp = keys;
+	uint32_t key_count = mp_decode_array(&keyp);
+	if (key_count == 0)
 		tnt_raise(IllegalParams, "tuple count must be positive");
 
 	ERROR_INJECT_EXCEPTION(ERRINJ_TESTING);
 
 	uint32_t found = 0;
-	const char *keys = request->s.keys;
-	uint32_t offset = request->s.offset;
-	uint32_t limit = request->s.limit;
-	for (uint32_t i = 0; i < request->s.key_count; i++) {
+	uint32_t offset = request->req.offset;
+	uint32_t limit = request->req.limit;
+	for (uint32_t i = 0; i < key_count; i++) {
 
 		/* End the loop if reached the limit. */
 		if (limit == found)
 			return;
 
 		/* read key */
-		const char *key = read_tuple(&keys, request->s.keys_end);
+		const char *key = read_tuple(&keys, request->req.keys_end);
 		uint32_t part_count = mp_decode_array(&key);
 
 		struct iterator *it = index->position();
@@ -175,7 +185,7 @@ execute_select(const struct request *request, struct txn *txn,
 		}
 	}
 
-	if (keys != request->s.keys_end)
+	if (keys != request->req.keys_end)
 		tnt_raise(IllegalParams, "can't unpack request");
 }
 
@@ -184,12 +194,14 @@ execute_delete(const struct request *request, struct txn *txn,
 	       struct port *port)
 {
 	(void) port;
-	txn_add_redo(txn, request->type, request->data, request->len);
-	struct space *space = space_find(request->d.space_no);
+	txn_add_redo(txn, request->req.request_type,
+	             request->req.data,
+				 request->req.len);
+	struct space *space = space_find(request->req.space);
 
 	/* Try to find tuple by primary key */
 	Index *pk = index_find(space, 0);
-	const char *key = request->d.key;
+	const char *key = request->req.keys; /* XXX */
 	uint32_t part_count = mp_decode_array(&key);
 	primary_key_validate(pk->key_def, key, part_count);
 	struct tuple *old_tuple = pk->findByKey(key, part_count);
@@ -207,9 +219,22 @@ execute_delete(const struct request *request, struct txn *txn,
 static bool
 request_check_type(uint32_t type)
 {
+#if 0
 	return (type != REPLACE && type != SELECT &&
 		type != UPDATE && type != DELETE_1_3 &&
 		type != DELETE && type != CALL);
+#endif
+	switch (type) {
+	case REPLACE:
+	case INSERT:
+	case STORE:
+	case DELETE:
+	case UPDATE:
+	case SELECT:
+	case CALL:
+		return true;
+	}
+	return false;
 }
 
 const char *
@@ -221,14 +246,63 @@ request_name(uint32_t type)
 }
 
 void
-request_create(struct request *request, uint32_t type, const char *data,
-	       uint32_t len)
+request_create(struct request *r, uint32_t type, const char *data,
+               uint32_t len)
 {
 	if (request_check_type(type)) {
 		say_error("Unsupported request = %" PRIi32 "", type);
 		tnt_raise(IllegalParams, "unsupported command code, "
 			  "check the error log");
 	}
+	memset(r, 0, sizeof(*r));
+
+	int rc = tb_decode_body(&r->req, type, len, data);
+	if (rc == -1)
+		tnt_raise(IllegalParams, "can't unpack request");
+
+	if (! tb_has(&r->req, TB_OFFSET))
+		r->req.offset = 0;
+	if (! tb_has(&r->req, TB_LIMIT))
+		r->req.limit = UINT32_MAX;
+	if (! tb_has(&r->req, TB_INDEX))
+		r->req.index = 0;
+	if (! tb_has(&r->req, TB_ITERATOR))
+		r->req.iterator = ITER_EQ;
+
+	uint64_t mandatory = 0;
+	switch (type) {
+	case INSERT:
+	case STORE:
+	case REPLACE:
+		mandatory = tb_bit(TB_SPACE)|tb_bit(TB_TUPLES);
+		r->execute = execute_replace;
+		break;
+	case SELECT:
+		mandatory = tb_bit(TB_SPACE)|tb_bit(TB_KEYS);
+		r->execute = execute_select;
+		break;
+	case UPDATE:
+		mandatory = tb_bit(TB_SPACE)|tb_bit(TB_KEYS) |
+		            tb_bit(TB_EXPRS);
+		r->execute = execute_update;
+		break;
+	case DELETE:
+		mandatory = tb_bit(TB_SPACE)|tb_bit(TB_KEYS);
+		r->execute = execute_delete;
+		break;
+	case CALL:
+		mandatory = tb_bit(TB_TUPLES)|tb_bit(TB_PROCNAME);
+		r->execute = box_lua_call;
+		break;
+	default:
+		assert(false);
+		break;
+	}
+
+	if ((r->req.bitmap & mandatory) == 0)
+		tnt_raise(IllegalParams, "insufficient arguments");
+
+#if 0
 	memset(request, 0, sizeof(*request));
 	request->type = type;
 	request->data = data;
@@ -306,4 +380,5 @@ request_create(struct request *request, uint32_t type, const char *data,
 		assert(false);
 		break;
 	}
+#endif
 }

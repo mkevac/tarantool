@@ -47,7 +47,6 @@ enum {
 struct iproto_header {
 	uint32_t msg_code;
 	uint32_t len;
-	uint32_t sync;
 } __attribute__((packed));
 
 struct iproto_reply_header {

@@ -82,7 +82,7 @@ process_rw(struct port *port, struct request *request)
 	struct txn *txn = txn_begin();
 
 	try {
-		stat_collect(stat_base, request->type, 1);
+		stat_collect(stat_base, request->req.request_type, 1);
 		request->execute(request, txn, port);
 		txn_commit(txn);
 		port_send_tuple(port, txn, request->flags);
@@ -97,7 +97,7 @@ process_rw(struct port *port, struct request *request)
 static void
 process_replica(struct port *port, struct request *request)
 {
-	if (!request_is_select(request->type)) {
+	if (!request_is_select(request->req.request_type)) {
 		tnt_raise(ClientError, ER_NONMASTER,
 			  cfg.replication_source);
 	}

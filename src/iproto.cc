@@ -42,7 +42,7 @@
 #include "session.h"
 #include "scoped_guard.h"
 
-static struct iproto_header dummy_header = { 0, 0, 0 };
+static struct iproto_header dummy_header = { 0, 0 };
 const uint32_t msg_ping = 0xff00;
 
 /* {{{ iproto_queue */
