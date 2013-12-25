@@ -93,7 +93,7 @@ execute_replace(const struct request *request, struct txn *txn,
 	             request->req.len);
 
 	struct space *space = space_find(request->req.space);
-	const char *tuple = request->req.tuples; /* XXX */
+	const char *tuple = request->req.tuples;
 	struct tuple *new_tuple =
 		tuple_new(space->format, &tuple, request->req.tuples_end);
 	TupleGuard guard(new_tuple);
@@ -116,7 +116,7 @@ execute_update(const struct request *request, struct txn *txn,
 	struct space *space = space_find(request->req.space);
 	Index *pk = index_find(space, 0);
 	/* Try to find the tuple by primary key. */
-	const char *key = request->req.keys; /* XXX */
+	const char *key = request->req.keys;
 	uint32_t part_count = mp_decode_array(&key);
 	primary_key_validate(pk->key_def, key, part_count);
 	struct tuple *old_tuple = pk->findByKey(key, part_count);
@@ -201,7 +201,7 @@ execute_delete(const struct request *request, struct txn *txn,
 
 	/* Try to find tuple by primary key */
 	Index *pk = index_find(space, 0);
-	const char *key = request->req.keys; /* XXX */
+	const char *key = request->req.keys;
 	uint32_t part_count = mp_decode_array(&key);
 	primary_key_validate(pk->key_def, key, part_count);
 	struct tuple *old_tuple = pk->findByKey(key, part_count);
@@ -232,9 +232,9 @@ request_check_type(uint32_t type)
 	case UPDATE:
 	case SELECT:
 	case CALL:
-		return true;
+		return false;
 	}
-	return false;
+	return true;
 }
 
 const char *
@@ -256,42 +256,64 @@ request_create(struct request *r, uint32_t type, const char *data,
 	}
 	memset(r, 0, sizeof(*r));
 
-	int rc = tb_decode_body(&r->req, type, len, data);
+	int rc = tb_decode_body(&r->req, type, data, len);
 	if (rc == -1)
 		tnt_raise(IllegalParams, "can't unpack request");
 
-	if (! tb_has(&r->req, TB_OFFSET))
+	if (tbhas(&r->req, TB_LIMIT)) {
+		if (type == INSERT  ||
+		    type == REPLACE ||
+		    type == STORE   ||
+		    type == DELETE  ||
+		    type == UPDATE) {
+				r->flags = BOX_RETURN_TUPLE;
+		} else {
+			r->req.limit = UINT32_MAX;
+		}
+	}
+	if (! tbhas(&r->req, TB_OFFSET))
 		r->req.offset = 0;
-	if (! tb_has(&r->req, TB_LIMIT))
-		r->req.limit = UINT32_MAX;
-	if (! tb_has(&r->req, TB_INDEX))
+	if (! tbhas(&r->req, TB_INDEX))
 		r->req.index = 0;
-	if (! tb_has(&r->req, TB_ITERATOR))
+	if (! tbhas(&r->req, TB_ITERATOR))
 		r->req.iterator = ITER_EQ;
 
 	uint64_t mandatory = 0;
+
 	switch (type) {
 	case INSERT:
-	case STORE:
-	case REPLACE:
-		mandatory = tb_bit(TB_SPACE)|tb_bit(TB_TUPLES);
+		mandatory = tbbit(TB_SPACE) | tbbit(TB_TUPLES);
 		r->execute = execute_replace;
+		r->flags |= BOX_ADD;
+		break;
+	case REPLACE:
+		mandatory = tbbit(TB_SPACE) | tbbit(TB_TUPLES);
+		r->execute = execute_replace;
+		r->flags |= BOX_REPLACE;
+		break;
+	case STORE:
+		mandatory = tbbit(TB_SPACE) | tbbit(TB_TUPLES);
+		r->execute = execute_replace;
+		r->flags |= BOX_REPLACE|BOX_ADD;
 		break;
 	case SELECT:
-		mandatory = tb_bit(TB_SPACE)|tb_bit(TB_KEYS);
+		mandatory = tbbit(TB_SPACE) | tbbit(TB_KEYS);
 		r->execute = execute_select;
+		r->flags |= BOX_REPLACE|BOX_ADD;
 		break;
 	case UPDATE:
-		mandatory = tb_bit(TB_SPACE)|tb_bit(TB_KEYS) |
-		            tb_bit(TB_EXPRS);
+		mandatory = tbbit(TB_SPACE) | tbbit(TB_KEYS) |
+		            tbbit(TB_EXPRS);
 		r->execute = execute_update;
+		r->flags |= BOX_REPLACE;
 		break;
 	case DELETE:
-		mandatory = tb_bit(TB_SPACE)|tb_bit(TB_KEYS);
+		mandatory = tbbit(TB_SPACE) | tbbit(TB_KEYS);
 		r->execute = execute_delete;
+		r->flags |= BOX_REPLACE;
 		break;
 	case CALL:
-		mandatory = tb_bit(TB_TUPLES)|tb_bit(TB_PROCNAME);
+		mandatory = tbbit(TB_TUPLES) | tbbit(TB_PROCNAME);
 		r->execute = box_lua_call;
 		break;
 	default:
@@ -301,84 +323,4 @@ request_create(struct request *r, uint32_t type, const char *data,
 
 	if ((r->req.bitmap & mandatory) == 0)
 		tnt_raise(IllegalParams, "insufficient arguments");
-
-#if 0
-	memset(request, 0, sizeof(*request));
-	request->type = type;
-	request->data = data;
-	request->len = len;
-	request->flags = 0;
-
-	const char **reqpos = &data;
-	const char *reqend = data + len;
-	const char *s;
-
-	switch (request->type) {
-	case REPLACE:
-		request->execute = execute_replace;
-		request->r.space_no = pick_u32(reqpos, reqend);
-		request->flags |= (pick_u32(reqpos, reqend) &
-				   BOX_ALLOWED_REQUEST_FLAGS);
-		request->r.tuple = read_tuple(reqpos, reqend);
-		if (unlikely(*reqpos != reqend))
-			tnt_raise(IllegalParams, "can't unpack request");
-
-		request->r.tuple_end = *reqpos;
-		break;
-	case SELECT:
-		request->execute = execute_select;
-		request->s.space_no = pick_u32(reqpos, reqend);
-		request->s.index_no = pick_u32(reqpos, reqend);
-		request->s.offset = pick_u32(reqpos, reqend);
-		request->s.limit = pick_u32(reqpos, reqend);
-		request->s.key_count = pick_u32(reqpos, reqend);
-		request->s.keys = *reqpos;
-		/* Do not parse the tail, execute_select will do it */
-		request->s.keys_end = reqend;
-		break;
-	case UPDATE:
-		request->execute = execute_update;
-		request->u.space_no = pick_u32(reqpos, reqend);
-		request->flags |= (pick_u32(reqpos, reqend) &
-				   BOX_ALLOWED_REQUEST_FLAGS);
-		request->u.key = read_tuple(reqpos, reqend);
-		request->u.key_end = *reqpos;
-		request->u.expr = *reqpos;
-		/* Do not parse the tail, tuple_update will do it */
-		request->u.expr_end = reqend;
-		break;
-	case DELETE_1_3:
-	case DELETE:
-		request->execute = execute_delete;
-		request->d.space_no = pick_u32(reqpos, reqend);
-		if (type == DELETE) {
-			request->flags |= pick_u32(reqpos, reqend) &
-				BOX_ALLOWED_REQUEST_FLAGS;
-		}
-		request->d.key = read_tuple(reqpos, reqend);
-		request->d.key_end = *reqpos;
-		if (unlikely(*reqpos != reqend))
-			tnt_raise(IllegalParams, "can't unpack request");
-		break;
-	case CALL:
-		request->execute = box_lua_call;
-		request->flags |= (pick_u32(reqpos, reqend) &
-				   BOX_ALLOWED_REQUEST_FLAGS);
-		s = *reqpos;
-		if (unlikely(!mp_check(reqpos, reqend)))
-			tnt_raise(ClientError, ER_INVALID_MSGPACK);
-		if (unlikely(mp_typeof(*s) != MP_STR))
-			tnt_raise(ClientError, ER_ARG_TYPE, 0, "STR");
-		request->c.procname = mp_decode_str(&s, &request->c.procname_len);
-		assert(s == *reqpos);
-		request->c.args = read_tuple(reqpos, reqend);
-		request->c.args_end = *reqpos;
-		if (unlikely(*reqpos != reqend))
-			tnt_raise(IllegalParams, "can't unpack request");
-		break;
-	default:
-		assert(false);
-		break;
-	}
-#endif
 }

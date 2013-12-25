@@ -308,10 +308,10 @@ box_lua_call(const struct request *request, struct txn *txn,
 	LuarefGuard coro_ref(tarantool_L);
 
 	/* proc name */
-	int oc = box_lua_find(L, request->c.procname,
-			 request->c.procname + request->c.procname_len);
+	int oc = box_lua_find(L, request->req.procname,
+			 request->req.procname + request->req.procname_len);
 	/* Push the rest of args (a tuple). */
-	const char *args = request->c.args;
+	const char *args = request->req.tuples;
 	uint32_t arg_count = mp_decode_array(&args);
 	luaL_checkstack(L, arg_count, "call: out of stack");
 
@@ -717,8 +717,62 @@ lbox_unpack(struct lua_State *L)
 #undef CHECK_SIZE
 }
 
+static int
+lbox_modify(lua_State *L, int op)
+{
+	uint32_t space = luaL_checkint(L, 2);
+
+	int top = lua_gettop(L);
+	size_t allocated_size = region_used(&fiber->gc);
+
+	struct tbuf *b = tbuf_new(&fiber->gc);
+	luamp_encode_map(b, 2);
+	luamp_encode_uint(b, TB_SPACE);
+	luamp_encode_uint(b, space);
+	luamp_encode_uint(b, TB_TUPLES);
+	luamp_encode_array(b, top - 2); /* object, space */
+	luamp_encode(L, b, 3);
+
+	struct port *port_lua = port_lua_create(L);
+	try {
+		struct request request;
+		request_create(&request, op, tbuf_str(b), b->size);
+		box_process(port_lua, &request);
+		/*
+		 * This only works as long as port_lua doesn't
+		 * use fiber->cleanup and fiber->gc.
+		 */
+		region_truncate(&fiber->gc, allocated_size);
+	} catch (const Exception &e) {
+		region_truncate(&fiber->gc, allocated_size);
+		throw;
+	}
+	return lua_gettop(L) - top;
+}
+
+static int
+lbox_insert(lua_State *L)
+{
+	return lbox_modify(L, INSERT);
+}
+
+static int
+lbox_replace(lua_State *L)
+{
+	return lbox_modify(L, REPLACE);
+}
+
+static int
+lbox_store(lua_State *L)
+{
+	return lbox_modify(L, STORE);
+}
+
 static const struct luaL_reg boxlib[] = {
 	{"process", lbox_process},
+	{"insert", lbox_insert},
+	{"replace", lbox_replace},
+	{"store", lbox_store},
 	{"call_loadproc",  lbox_call_loadproc},
 	{"raise", lbox_raise},
 	{"pack", lbox_pack},

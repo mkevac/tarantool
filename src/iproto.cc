@@ -397,13 +397,19 @@ static inline void
 iproto_validate_header(struct iproto_header *header, int fd)
 {
 	(void) fd;
-	if (header->len > IPROTO_BODY_LEN_MAX) {
+
+	uint32_t len = mp_bswap_u32(header->len);
+
+	if (len > IPROTO_BODY_LEN_MAX) {
 		/*
 		 * The package is too big, just close connection for now to
 		 * avoid DoS.
 		 */
 		tnt_raise(IllegalParams, "received package is too big");
 	}
+
+	header->msg_code = mp_bswap_u32(header->msg_code);
+	header->len = len;
 }
 
 /**

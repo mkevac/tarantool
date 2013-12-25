@@ -97,6 +97,8 @@ const char *request_name(uint32_t type);
 struct request
 {
 	struct tbrequest req;
+	uint32_t flags;
+
 #if 0
 	uint32_t type;
 

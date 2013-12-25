@@ -75,18 +75,6 @@ function box.replace_if_exists(space, ...)
                 field_count, ...))
 end;
 
--- insert a tuple (produces an error if the tuple already exists)
-function box.insert(space, ...)
-    local field_count = select('#', ...)
-    return box.process(13,
-        box.pack('iiV',
-            space,
-            bit.bor(box.flags.BOX_RETURN_TUPLE,
-                box.flags.BOX_ADD),  -- flags
-            field_count, ...))
-end
-
---
 function box.update(space, key, format, ...)
     local op_count = bit.rshift(select('#', ...), 1)
     return box.process(19,

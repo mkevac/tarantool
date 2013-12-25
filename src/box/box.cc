@@ -107,7 +107,7 @@ process_replica(struct port *port, struct request *request)
 static void
 process_ro(struct port *port, struct request *request)
 {
-	if (!request_is_select(request->type))
+	if (!request_is_select(request->req.request_type))
 		tnt_raise(LoggedError, ER_SECONDARY);
 	return process_rw(port, request);
 }
