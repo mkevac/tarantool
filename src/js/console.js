@@ -1,4 +1,17 @@
-/* Alter 'exports' object here */
+/**
+ * @module Console
+ */
+
+/**
+ * Internal native constructor. Please use require.
+ * @exports Console
+ * @constructor
+ * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/console.log}
+ * @see {@link http://nodejs.org/api/stdio.html#stdio_console}
+ * @example
+ * var console = require('console') // return instanceof Console
+ */
+var Console = exports
 
 var formatRegExp = /%[sdj%]/g;
 format = function(f) {
@@ -31,7 +44,7 @@ format = function(f) {
     }
 };
 
-function trace() {
+Console.prototype.trace = function trace() {
     /* See http://code.google.com/p/v8/wiki/JavaScriptStackTraceApi */
     var prepareStackTraceOld = Error.prepareStackTrace;
     var ret;
@@ -57,46 +70,73 @@ function trace() {
     return ret;
 }
 
-exports.prototype.trace = trace
+/**
+ * Return stack trace
+ */
+Console.prototype.trace = trace
 
-exports.prototype.panic = function() {
+/**
+ * Print message into log
+ */
+Console.prototype.panic = function() {
     var frame = trace()[1]
     return this.say(this.say.FATAL, frame.fileName, frame.lineNumber,
                     format.apply(this, arguments));
 }
 
-exports.prototype.error = function() {
+/**
+ * Print message into log
+ */
+Console.prototype.error = function() {
     var frame = trace()[1]
     return this.say(this.say.ERROR, frame.fileName, frame.lineNumber,
                     format.apply(this, arguments));
 }
 
-exports.prototype.crit = function() {
+/**
+ * Print message into log
+ */
+Console.prototype.crit = function() {
     var frame = trace()[1]
     return this.say(this.say.CRIT, frame.fileName, frame.lineNumber,
                     format.apply(this, arguments));
 
 }
 
-exports.prototype.warn = function() {
+/**
+ * Print message into log
+ */
+Console.prototype.warn = function() {
     var frame = trace()[1]
     return this.say(this.say.WARN, frame.fileName, frame.lineNumber,
                     format.apply(this, arguments));
 
 }
 
-exports.prototype.info = function() {
+/**
+ * Print message into log
+ */
+Console.prototype.info = function() {
     var frame = trace()[1]
     return this.say(this.say.INFO, frame.fileName, frame.lineNumber,
                     format.apply(this, arguments));
 
 }
 
-exports.prototype.debug = function() {
+/**
+ * Print message into log
+ */
+Console.prototype.debug = function() {
     var frame = trace()[1]
     return this.say(this.say.DEBUG, frame.fileName, frame.lineNumber,
                     format.apply(this, arguments));
 
 }
 
-exports.prototype.log = exports.prototype.info
+/**
+ * Print message into log.
+ * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/console.log}
+ * @param {...Object} args - arguments
+ * @returns {String} - formatted message
+ */
+Console.prototype.log = function() {}
