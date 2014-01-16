@@ -37,17 +37,8 @@
 #include "assoc.h"
 #include "memory.h"
 
-enum { FIBER_CALL_STACK = 16 };
-
-static struct fiber sched;
-__thread struct fiber *fiber_self_ptr = &sched;
-static __thread struct fiber *call_stack[FIBER_CALL_STACK];
-static __thread struct fiber **sp;
-static __thread uint32_t last_used_fid;
-static __thread struct mh_i32ptr_t *fiber_registry;
-static __thread struct rlist fibers, zombie_fibers, ready_fibers;
-static __thread ev_async ready_async;
-static struct mempool fiber_pool;
+__thread struct cord *cord_self_ptr = NULL;
+static uint32_t last_used_cid = 0;
 
 static void
 update_last_stack_frame(struct fiber *fiber)
@@ -64,11 +55,11 @@ fiber_call(struct fiber *callee, ...)
 {
 	struct fiber *caller = fiber_self();
 
-	assert(sp + 1 - call_stack < FIBER_CALL_STACK);
+	assert(cord_self()->sp + 1 - cord_self()->call_stack < FIBER_CALL_STACK);
 	assert(caller);
 
-	fiber_self_ptr = callee;
-	*sp++ = caller;
+	cord_self()->fiber = callee;
+	*cord_self()->sp++ = caller;
 
 	update_last_stack_frame(caller);
 
@@ -84,7 +75,7 @@ fiber_call(struct fiber *callee, ...)
 void
 fiber_checkstack()
 {
-	if (sp + 1 - call_stack >= FIBER_CALL_STACK)
+	if (cord_self()->sp + 1 - cord_self()->call_stack >= FIBER_CALL_STACK)
 		tnt_raise(ClientError, ER_FIBER_STACK);
 }
 
@@ -99,9 +90,9 @@ fiber_wakeup(struct fiber *f)
 	if (f->flags & FIBER_READY)
 		return;
 	f->flags |= FIBER_READY;
-	if (rlist_empty(&ready_fibers))
-		ev_async_send(&ready_async);
-	rlist_move_tail_entry(&ready_fibers, f, state);
+	if (rlist_empty(&cord_self()->ready_fibers))
+		ev_async_send(&cord_self()->ready_async);
+	rlist_move_tail_entry(&cord_self()->ready_fibers, f, state);
 }
 
 /** Cancel the subject fiber.
@@ -202,10 +193,10 @@ fiber_setcancellable(bool enable)
 void
 fiber_yield(void)
 {
-	struct fiber *callee = *(--sp);
+	struct fiber *callee = *(--cord_self()->sp);
 	struct fiber *caller = fiber_self();
 
-	fiber_self_ptr = callee;
+	cord_self()->fiber = callee;
 	update_last_stack_frame(caller);
 
 	callee->csw++;
@@ -223,7 +214,7 @@ fiber_schedule_timeout(ev_timer *watcher, int revents)
 {
 	(void) revents;
 
-	assert(fiber_self() == &sched);
+	assert(fiber_self() == &cord_self()->sched);
 	struct fiber_watcher_data *state =
 			(struct fiber_watcher_data *) watcher->data;
 	state->timed_out = true;
@@ -294,7 +285,7 @@ wait_for_child(pid_t pid)
 void
 fiber_schedule(ev_watcher *watcher, int event __attribute__((unused)))
 {
-	assert(fiber_self() == &sched);
+	assert(fiber_self() == &cord_self()->sched);
 	fiber_call((struct fiber *) watcher->data);
 }
 
@@ -304,9 +295,9 @@ fiber_ready_async(ev_async *watcher, int revents)
 	(void) watcher;
 	(void) revents;
 
-	while(!rlist_empty(&ready_fibers)) {
+	while(!rlist_empty(&cord_self()->ready_fibers)) {
 		struct fiber *f =
-			rlist_first_entry(&ready_fibers, struct fiber, state);
+			rlist_first_entry(&cord_self()->ready_fibers, struct fiber, state);
 		rlist_del_entry(f, state);
 		fiber_call(f);
 	}
@@ -315,25 +306,25 @@ fiber_ready_async(ev_async *watcher, int revents)
 struct fiber *
 fiber_find(uint32_t fid)
 {
-	mh_int_t k = mh_i32ptr_find(fiber_registry, fid, NULL);
+	mh_int_t k = mh_i32ptr_find(cord_self()->fiber_registry, fid, NULL);
 
-	if (k == mh_end(fiber_registry))
+	if (k == mh_end(cord_self()->fiber_registry))
 		return NULL;
-	return (struct fiber *) mh_i32ptr_node(fiber_registry, k)->val;
+	return (struct fiber *) mh_i32ptr_node(cord_self()->fiber_registry, k)->val;
 }
 
 static void
 register_fid(struct fiber *fiber)
 {
 	struct mh_i32ptr_node_t node = { fiber->fid, fiber };
-	mh_i32ptr_put(fiber_registry, &node, NULL, NULL);
+	mh_i32ptr_put(cord_self()->fiber_registry, &node, NULL, NULL);
 }
 
 static void
 unregister_fid(struct fiber *fiber)
 {
 	struct mh_i32ptr_node_t node = { fiber->fid, NULL };
-	mh_i32ptr_remove(fiber_registry, &node, NULL);
+	mh_i32ptr_remove(cord_self()->fiber_registry, &node, NULL);
 }
 
 void
@@ -365,7 +356,7 @@ fiber_zombificate()
 	fiber_self()->fid = 0;
 	fiber_self()->flags = 0;
 	region_free(&fiber_self()->gc);
-	rlist_move_entry(&zombie_fibers, fiber_self(), link);
+	rlist_move_entry(&cord_self()->zombie_fibers, fiber_self(), link);
 }
 
 static void
@@ -425,18 +416,18 @@ fiber_new(const char *name, void (*f) (va_list))
 {
 	struct fiber *fiber = NULL;
 
-	if (!rlist_empty(&zombie_fibers)) {
-		fiber = rlist_first_entry(&zombie_fibers, struct fiber, link);
-		rlist_move_entry(&fibers, fiber, link);
+	if (!rlist_empty(&cord_self()->zombie_fibers)) {
+		fiber = rlist_first_entry(&cord_self()->zombie_fibers, struct fiber, link);
+		rlist_move_entry(&cord_self()->fibers, fiber, link);
 	} else {
-		fiber = (struct fiber *) mempool_alloc(&fiber_pool);
+		fiber = (struct fiber *) mempool_alloc(&cord_self()->fiber_pool);
 		memset(fiber, 0, sizeof(*fiber));
 
 		tarantool_coro_create(&fiber->coro, fiber_loop, NULL);
 
-		region_create(&fiber->gc, slabc_runtime);
+		region_create(&fiber->gc, &cord_self()->slabc);
 
-		rlist_add_entry(&fibers, fiber, link);
+		rlist_add_entry(&cord_self()->fibers, fiber, link);
 		rlist_create(&fiber->state);
 	}
 
@@ -444,9 +435,9 @@ fiber_new(const char *name, void (*f) (va_list))
 	fiber->f = f;
 
 	/* fids from 0 to 100 are reserved */
-	if (++last_used_fid < 100)
-		last_used_fid = 100;
-	fiber->fid = last_used_fid;
+	if (++cord_self()->last_used_fid < 100)
+		cord_self()->last_used_fid = 100;
+	fiber->fid = cord_self()->last_used_fid;
 	fiber->session = NULL;
 	fiber->flags = 0;
 	fiber->waiter = NULL;
@@ -479,55 +470,94 @@ void
 fiber_destroy_all()
 {
 	struct fiber *f;
-	rlist_foreach_entry(f, &fibers, link)
+	rlist_foreach_entry(f, &cord_self()->fibers, link)
 		fiber_destroy(f);
-	rlist_foreach_entry(f, &zombie_fibers, link)
+	rlist_foreach_entry(f, &cord_self()->zombie_fibers, link)
 		fiber_destroy(f);
 }
 
 void
-fiber_init(void)
+cord_exit(void *retval)
 {
-	mempool_create(&fiber_pool, slabc_runtime, sizeof(struct fiber));
-	rlist_create(&fibers);
-	rlist_create(&ready_fibers);
-	rlist_create(&zombie_fibers);
-	fiber_registry = mh_i32ptr_new();
-
-	memset(&sched, 0, sizeof(sched));
-	sched.fid = 1;
-	region_create(&sched.gc, slabc_runtime);
-	fiber_set_name(&sched, "sched");
-
-	sp = call_stack;
-	fiber_self_ptr = &sched;
-	last_used_fid = 100;
-
-	ev_async_init(&ready_async, fiber_ready_async);
-	ev_async_start(&ready_async);
+	cord_destroy();
+	pthread_exit(retval);
 }
 
-void
-fiber_free(void)
+static void *
+cord_thread(void *arg)
 {
-	ev_async_stop(&ready_async);
-	/* Only clean up if initialized. */
-	if (fiber_registry) {
-		fiber_destroy_all();
-		mh_i32ptr_delete(fiber_registry);
+	struct cord *cord = (struct cord *) arg;
+
+	/* set thread-local variable */
+	cord_self_ptr = cord;
+
+	void *retval = cord->start_routine(cord->arg);
+	cord_destroy();
+	return retval;
+}
+
+int
+cord_create(struct cord *cord, const char *name,
+	    void *(*start_routine) (void *), void *arg)
+{
+	memset(cord, 0, sizeof(cord));
+
+	slab_cache_create(&cord->slabc, &arena_runtime, 0);
+	mempool_create(&cord->fiber_pool, &cord->slabc, sizeof(struct fiber));
+	rlist_create(&cord->fibers);
+	rlist_create(&cord->ready_fibers);
+	rlist_create(&cord->zombie_fibers);
+	cord->fiber_registry = mh_i32ptr_new();
+
+	memset(&cord->sched, 0, sizeof(cord->sched));
+	cord->sched.fid = 1;
+	region_create(&cord->sched.gc, &cord->slabc);
+	fiber_set_name(&cord->sched, "sched");
+
+	cord->sp = cord->call_stack;
+	cord->fiber = &cord->sched;
+	cord->last_used_fid = 100;
+
+	ev_async_init(&cord->ready_async, fiber_ready_async);
+	ev_async_start(&cord->ready_async);
+
+	snprintf(cord->name, sizeof(cord->name), "%s", name);
+	cord->cid = ++last_used_cid;
+	if (start_routine == NULL) {
+		assert(cord_self_ptr == NULL);
+		cord->thread = pthread_self();
+		cord_self_ptr = cord;
+		return 0;
 	}
+
+	cord->start_routine = start_routine;
+	cord->arg = arg;
+
+	return pthread_create(&cord->thread, NULL, cord_thread, cord);
+}
+
+void
+cord_destroy(void)
+{
+	ev_async_stop(&cord_self()->ready_async);
+	/* Only clean up if initialized. */
+	if (cord_self()->fiber_registry) {
+		fiber_destroy_all();
+		mh_i32ptr_delete(cord_self()->fiber_registry);
+	}
+	slab_cache_destroy(&cord_self()->slabc);
 }
 
 int fiber_stat(fiber_stat_cb cb, void *cb_ctx)
 {
 	struct fiber *fiber;
 	int res;
-	rlist_foreach_entry(fiber, &fibers, link) {
+	rlist_foreach_entry(fiber, &cord_self()->fibers, link) {
 		res = cb(fiber, cb_ctx);
 		if (res != 0)
 			return res;
 	}
-	rlist_foreach_entry(fiber, &zombie_fibers, link) {
+	rlist_foreach_entry(fiber, &cord_self()->zombie_fibers, link) {
 		res = cb(fiber, cb_ctx);
 		if (res != 0)
 			return res;

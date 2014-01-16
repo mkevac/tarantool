@@ -83,6 +83,8 @@ struct tarantool_cfg cfg;
 static ev_signal ev_sigs[4];
 static const int ev_sig_count = sizeof(ev_sigs)/sizeof(*ev_sigs);
 
+static struct cord main_cord;
+
 extern const void *opt_def;
 
 /* defined in third_party/proctitle.c */
@@ -562,7 +564,7 @@ tarantool_free(void)
 	destroy_tarantool_cfg(&cfg);
 
 	session_free();
-	fiber_free();
+	cord_destroy();
 	memory_free();
 	ev_default_destroy();
 #ifdef ENABLE_GCOV
@@ -775,7 +777,7 @@ main(int argc, char **argv)
 	atexit(tarantool_free);
 
 	ev_default_loop(EVFLAG_AUTO);
-	fiber_init();
+	cord_create(&main_cord, "main", NULL, NULL);
 	replication_prefork();
 	iobuf_init(cfg.readahead);
 	coeio_init();

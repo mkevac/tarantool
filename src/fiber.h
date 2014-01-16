@@ -33,10 +33,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <pthread.h>
 #include "third_party/tarantool_ev.h"
 #include "coro.h"
 #include "trivia/util.h"
 #include "third_party/queue.h"
+#include "small/mempool.h"
 #include "small/region.h"
 
 #if defined(__cplusplus)
@@ -108,16 +110,6 @@ struct fiber {
 	uint64_t cookie;
 };
 
-extern __thread struct fiber *fiber_self_ptr;
-
-static inline struct fiber *
-fiber_self(void)
-{
-	return fiber_self_ptr;
-}
-
-void fiber_init(void);
-void fiber_free(void);
 typedef void(*fiber_func)(va_list);
 struct fiber *fiber_new(const char *name, fiber_func f);
 void fiber_set_name(struct fiber *fiber, const char *name);
@@ -179,5 +171,55 @@ fiber_set_session(struct fiber *f, struct session *session)
 typedef int (*fiber_stat_cb)(struct fiber *f, void *ctx);
 
 int fiber_stat(fiber_stat_cb cb, void *cb_ctx);
+
+enum { FIBER_CALL_STACK = 16 };
+
+/**
+ * @brief An independent execution unit that can be managed by a separate OS
+ * thread. Each cord consists of fibers to implement cooperative multitasking
+ * model.
+ */
+struct cord {
+	struct fiber *fiber;
+	pthread_t thread;
+	uint32_t cid;
+	uint32_t last_used_fid;
+	struct fiber *call_stack[FIBER_CALL_STACK];
+	struct fiber **sp;
+	struct mh_i32ptr_t *fiber_registry;
+	struct rlist fibers;
+	struct rlist zombie_fibers;
+	struct rlist ready_fibers;
+	ev_async ready_async;
+	struct mempool fiber_pool;
+	struct fiber sched;
+	struct slab_cache slabc;
+	char name[REGION_NAME_MAX];
+
+	/* used by cord_create */
+	void *(*start_routine) (void *);
+	void *arg;
+};
+
+extern __thread struct cord *cord_self_ptr;
+
+static inline struct cord *
+cord_self(void)
+{
+	return cord_self_ptr;
+}
+
+static inline struct fiber *
+fiber_self(void)
+{
+	return cord_self()->fiber;
+}
+
+int
+cord_create(struct cord *cord, const char *name,
+	    void *(*start_routine) (void *), void *arg);
+
+void
+cord_destroy(void);
 
 #endif /* TARANTOOL_FIBER_H_INCLUDED */

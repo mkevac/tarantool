@@ -196,8 +196,17 @@ vsay(int level, const char *filename, int line, const char *error, const char *f
 	p += snprintf(buf + p, len - p, ":%06.3f",
 		      ev_now() - now + tm.tm_sec);
 
-	p += snprintf(buf + p, len - p, " [%i] %i/%s", getpid(),
-		      fiber_self()->fid, fiber_name(fiber_self()));
+	uint32_t fid = 1;
+	const char *fname = "sched";
+	uint32_t cid = 1;
+	if (likely(cord_self() != NULL)) {
+		fid = fiber_self()->fid;
+		fname = fiber_name(fiber_self());
+		cid = cord_self()->cid;
+	}
+
+	p += snprintf(buf + p, len - p, " [%i] %i:%i/%s", getpid(),
+		      cid, fid, fname);
 
 	if (level == S_WARN || level == S_ERROR)
 		p += snprintf(buf + p, len - p, " %s:%i", filename, line);

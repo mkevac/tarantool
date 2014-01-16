@@ -35,8 +35,8 @@
  * slab caches, allocators, arenas.
  */
 
-/* thread - runtime memory. */
-extern struct slab_cache *slabc_runtime;
+/* process - runtime memory. */
+extern struct slab_arena arena_runtime;
 
 void
 memory_init();

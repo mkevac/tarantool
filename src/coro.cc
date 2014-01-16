@@ -36,6 +36,7 @@
 
 #include "third_party/valgrind/memcheck.h"
 #include "memory.h"
+#include "fiber.h"
 
 void
 tarantool_coro_create(struct tarantool_coro *coro,
@@ -47,7 +48,7 @@ tarantool_coro_create(struct tarantool_coro *coro,
 
 	/* TODO: guard pages */
 	coro->stack_size = page * 16 - slab_sizeof();
-	coro->stack = (char *) slab_get(slabc_runtime, coro->stack_size)
+	coro->stack = (char *) slab_get(&cord_self()->slabc, coro->stack_size)
 					+ slab_sizeof();
 
 	if (coro->stack == NULL) {
@@ -66,7 +67,7 @@ void
 tarantool_coro_destroy(struct tarantool_coro *coro)
 {
 	if (coro->stack != NULL) {
-		slab_put(slabc_runtime, (struct slab *)
+		slab_put(&cord_self()->slabc, (struct slab *)
 			 ((char *) coro->stack - slab_sizeof()));
 	}
 }
