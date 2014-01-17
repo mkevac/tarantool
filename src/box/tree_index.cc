@@ -64,6 +64,29 @@ sptree_index_fold(void *node, struct tuple *tuple)
 	node_x->tuple = tuple;
 }
 
+template<int field_count, int types_info>
+static int
+sptree_index_node_compare_hint_tpl(const void *node_a, const void *node_b, void *arg, compare_hint *hint)
+{
+	TreeIndex *self = (TreeIndex *) arg;
+	struct tuple *tuple_a = sptree_index_unfold(node_a);
+	struct tuple *tuple_b = sptree_index_unfold(node_b);
+
+	return tuple_compare_hint_tpl<field_count, types_info>(tuple_a, tuple_b, self->key_def, hint);
+}
+
+template<int field_count, int types_info>
+static int
+sptree_index_node_compare_dup_hint_tpl(const void *node_a, const void *node_b, void *arg, compare_hint *hint)
+{
+	TreeIndex *self = (TreeIndex *) arg;
+	struct tuple *tuple_a = sptree_index_unfold(node_a);
+	struct tuple *tuple_b = sptree_index_unfold(node_b);
+
+	return tuple_compare_dup_hint_tpl<field_count, types_info>(tuple_a, tuple_b, self->key_def, hint);
+}
+
+/*
 static int
 sptree_index_node_compare_hint(const void *node_a, const void *node_b, void *arg, compare_hint *hint)
 {
@@ -83,6 +106,7 @@ sptree_index_node_compare_dup_hint(const void *node_a, const void *node_b, void 
 
 	return tuple_compare_dup_hint(tuple_a, tuple_b, self->key_def, hint);
 }
+*/
 
 static int
 sptree_index_node_compare_with_key_hint(const void *key, const void *node, void *arg, compare_hint *hint)
@@ -96,6 +120,49 @@ sptree_index_node_compare_with_key_hint(const void *key, const void *node, void 
 	return -tuple_compare_with_key_hint(tuple, key_data->key,
 				       key_data->part_count, self->key_def, hint);
 }
+
+
+template<int k, int n>
+struct Pow {
+	enum tag_res { res = Pow<k, n - 1>::res * k };
+};
+
+template<int k>
+struct Pow<k, 0> {
+	enum tag_res { res = 1 };
+
+};
+
+typedef int
+(*node_compare_hint_inst_t)(const void *node_a, const void *node_b, void *arg, compare_hint *hint);
+
+const int prec_compare_depth = 3;
+
+node_compare_hint_inst_t node_compare_hint_insts[prec_compare_depth + 1][Pow<field_type_count, prec_compare_depth>::res];
+node_compare_hint_inst_t node_compare_dup_hint_insts[prec_compare_depth + 1][Pow<field_type_count, prec_compare_depth>::res];
+
+template<int n, int k1, int k2>
+struct RangeInstaniator : RangeInstaniator<n, k1, (k1 + k2 + 1) / 2 - 1>, RangeInstaniator<n, (k1 + k2 + 1) / 2, k2> { };
+
+template<int n, int k>
+struct RangeInstaniator<n, k, k> {
+	RangeInstaniator<n, k, k>()
+	{
+		node_compare_hint_insts[n][k] = sptree_index_node_compare_hint_tpl<n, k>;
+		node_compare_dup_hint_insts[n][k] = sptree_index_node_compare_dup_hint_tpl<n, k>;
+	}
+};
+
+
+template<int n>
+struct CompareInstaniator : public CompareInstaniator<n - 1>, RangeInstaniator<n, 0, Pow<field_type_count, n>::res - 1> {};
+
+template<>
+struct CompareInstaniator<0> {};
+
+static CompareInstaniator<prec_compare_depth> comp_inst;
+
+
 
 /* {{{ TreeIndex Iterators ****************************************/
 
@@ -396,6 +463,31 @@ TreeIndex::buildNext(struct tuple *tuple)
 	tree.size++;
 }
 
+int
+TreeIndex::calc_types_info()
+{
+	int types_info = 0;
+	for (uint32_t i = 0; i < key_def->part_count; i++) {
+		int type_index = 0;
+		switch (key_def->parts[i].type) {
+		case NUM:
+			type_index = enum_field_type_to_index<NUM>::index;
+			break;
+		case NUM64:
+			type_index = enum_field_type_to_index<NUM64>::index;
+			break;
+		case STRING:
+			type_index = enum_field_type_to_index<STRING>::index;
+			break;
+		default:
+			panic("unknown type");
+			break;
+		}
+		types_info = types_info * field_type_count + type_index;
+	}
+	return types_info;
+}
+
 void
 TreeIndex::endBuild()
 {
@@ -408,7 +500,8 @@ TreeIndex::endBuild()
 	sptree_index_init(&tree, sizeof(struct sptree_index_node),
 			  nodes, n_tuples, estimated_tuples,
 			  sptree_index_node_compare_with_key_hint,
-			  sptree_index_node_compare_hint,
+			  //sptree_index_node_compare_hint,
+			  node_compare_hint_insts[key_def->part_count][calc_types_info()],
 			  this);
 }
 
@@ -452,7 +545,9 @@ TreeIndex::build(Index *pk)
 	sptree_index_init(&tree, sizeof(struct sptree_index_node),
 			  nodes, n_tuples, estimated_tuples,
 			  sptree_index_node_compare_with_key_hint,
-			  key_def->is_unique ? sptree_index_node_compare_hint
-					     : sptree_index_node_compare_dup_hint,
+			  //key_def->is_unique ? sptree_index_node_compare_hint
+			//		     : sptree_index_node_compare_dup_hint,
+			  key_def->is_unique ? node_compare_hint_insts[key_def->part_count][calc_types_info()]
+					     : node_compare_dup_hint_insts[key_def->part_count][calc_types_info()],
 			  this);
 }

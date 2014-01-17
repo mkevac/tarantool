@@ -46,20 +46,6 @@ struct tuple_format *tuple_format_ber;
 static uint32_t formats_size, formats_capacity;
 extern int snapshot_pid;
 
-void min_hint(const compare_hint *h1, const compare_hint *h2,
-	      compare_hint *res)
-{
-	res->fields_hit = MIN(h1->fields_hit, h2->fields_hit);
-	if (h1->fields_hit < h2->fields_hit) {
-		res->current_field_hit = h1->current_field_hit;
-	} else if (h1->fields_hit > h2->fields_hit) {
-		res->current_field_hit = h2->current_field_hit;
-	} else {
-		res->current_field_hit =
-			MIN(h1->current_field_hit, h2->current_field_hit);
-	}
-}
-
 /** Extract all available type info from keys. */
 void
 field_type_create(enum field_type *types, uint32_t field_count,
@@ -410,15 +396,15 @@ tuple_new(struct tuple_format *format, uint32_t field_count,
 }
 
 int
-mymemcmp(const void * ptr1, const void * ptr2, size_t num)
+mymemcmp(const void * ptr1, const void * ptr2, size_t count)
 {
 	const char *c1 = (const char *)ptr1;
 	const char *c2 = (const char *)ptr2;
-	for(int i = 1; i <= num; ++i, ++c1, ++c2) {
-		if(*c1 < *c2)
-			return -i;
-		else if(*c1 > *c2)
+	for(int i = 1; i <= count; ++i, ++c1, ++c2) {
+		if (*c1 > *c2)
 			return i;
+		else if (*c1 < *c2)
+			return -i;
 	}
 	return 0;
 }
@@ -604,9 +590,11 @@ int
 tuple_compare_hint(const struct tuple *tuple_a, const struct tuple *tuple_b,
 		   const struct key_def *key_def, compare_hint *hint)
 {
+	if (hint->fields_hit >= key_def->part_count)
+		return 0;
 	if (key_def->part_count == 1 && key_def->parts[0].fieldno == 0) {
-		if (hint->fields_hit == 1)
-			return 0;
+		//if (hint->fields_hit == 1)
+		//	return 0;
 		int r = tuple_compare_field_hint(tuple_a->data, tuple_b->data,
 						 key_def->parts[0].type,
 						 &hint->current_field_hit);

@@ -167,6 +167,7 @@ tuple_ref(struct tuple *tuple, int count);
 * @param tuple tuple
 * @return tuple format instance
 */
+/*
 static inline struct tuple_format *
 tuple_format(const struct tuple *tuple)
 {
@@ -174,6 +175,8 @@ tuple_format(const struct tuple *tuple)
 	assert(tuple_format_id(format) == tuple->format_id);
 	return format;
 }
+*/
+#define tuple_format(tuple) ((struct tuple_format * const)(tuple_formats[(tuple)->format_id]))
 
 /**
  * Get a field from tuple by index.
@@ -416,6 +419,180 @@ int
 tuple_compare_with_key_hint_dbg(const struct tuple *tuple_a, const char *key,
 			    uint32_t part_count,
 			    const struct key_def *key_def, compare_hint *hint);
+
+int
+mymemcmp(const void * ptr1, const void * ptr2, size_t count);
+
+template<enum field_type type>
+static inline int
+tuple_compare_field_hint_tpl(const char *field_a, const char *field_b,
+		    uint32_t *hint)
+{
+	if (type == NUM) {
+		assert(field_a[0] == field_b[0]);
+		uint32_t a = *(uint32_t *) (field_a + 1);
+		uint32_t b = *(uint32_t *) (field_b + 1);
+		/*
+		 * Little-endian unsigned int is memcmp
+		 * compatible.
+		 */
+		return a < b ? -1 : a > b;
+	}
+	if (type == NUM64) {
+		assert(field_a[0] == field_b[0]);
+		uint64_t a = *(uint64_t *) (field_a + 1);
+		uint64_t b = *(uint64_t *) (field_b + 1);
+		return a < b ? -1 : a > b;
+	}
+	if (type != NUM && type != NUM64) {
+		uint32_t size_a = load_varint32(&field_a);
+		uint32_t size_b = load_varint32(&field_b);
+		uint32_t size_min = MIN(size_a, size_b);
+		int r = mymemcmp(field_a + *hint, field_b + *hint,
+			(size_t)(size_min - *hint));
+		if (r == 0) {
+			r = size_a < size_b ? -1 : size_a > size_b;
+			*hint = size_min;
+		} else {
+			*hint += (r > 0 ? r : -r) - 1;
+		}
+		return r;
+	}
+}
+
+template<enum field_type type>
+struct enum_field_type_to_index;
+template<>
+struct enum_field_type_to_index<NUM> {
+	enum tag_index { index = 0 };
+};
+template<>
+struct enum_field_type_to_index<NUM64> {
+	enum tag_index { index = 1 };
+};
+template<>
+struct enum_field_type_to_index<STRING> {
+	enum tag_index { index = 2 };
+};
+
+template<int index>
+struct index_to_enum_field_type;
+template<>
+struct index_to_enum_field_type<0> {
+	enum tag_type { type = NUM };
+};
+template<>
+struct index_to_enum_field_type<1> {
+	enum tag_type { type = NUM64 };
+};
+template<>
+struct index_to_enum_field_type<2> {
+	enum tag_type { type = STRING };
+};
+
+const int field_type_count = 3;
+
+template<int field_count, int skip_fields, int types_info>
+struct TupleComparator;
+
+template<int skip_fields, int types_info>
+struct TupleComparator<skip_fields, skip_fields, types_info> {
+	static int
+	Compare(const struct tuple *, const struct tuple *,
+		const struct tuple_format *,
+		const struct tuple_format *,
+		struct key_part **part, compare_hint *) {
+		*part += skip_fields;
+		return 0;
+	}
+};
+
+template<int field_count, int skip_fields, int types_info>
+struct TupleComparator {
+	static int
+	Compare(const struct tuple *tuple_a, const struct tuple *tuple_b,
+		const struct tuple_format *format_a,
+		const struct tuple_format *format_b,
+		struct key_part **part, compare_hint *hint)
+	{
+		typedef TupleComparator<field_count - 1, skip_fields, types_info / field_type_count> P;
+		int r = P::Compare(tuple_a, tuple_b, format_a, format_b, part, hint);
+		if (r) {
+			return r;
+		} else if (field_count > 1) {
+			hint->fields_hit = field_count - 1;
+			hint->current_field_hit = 0;
+		}
+		const char *field_a = tuple_field_old(format_a, tuple_a, (*part)->fieldno);
+		const char *field_b = tuple_field_old(format_b, tuple_b, (*part)->fieldno);
+		(*part)++;
+		const int cur_ti = types_info % field_type_count;
+		const enum field_type cur_ft = (enum field_type)index_to_enum_field_type<cur_ti>::type;
+		r = tuple_compare_field_hint_tpl<cur_ft>(field_a, field_b, &hint->current_field_hit);
+		if (r == 0) {
+			hint->fields_hit++;
+			hint->current_field_hit = 0;
+		}
+		return r;
+	}
+};
+
+typedef int
+(*Comparer)(const struct tuple *tuple_a, const struct tuple *tuple_b,
+	const struct tuple_format *format_a,
+	const struct tuple_format *format_b,
+	struct key_part **part, compare_hint *hint);
+
+
+template<int field_count, int skip_fields, int types_info>
+struct SkipInstaniator;
+
+template<int field_count, int types_info>
+struct SkipInstaniator<field_count, 0, types_info> {
+	SkipInstaniator<field_count, 0, types_info>(Comparer* arr) {
+		arr[0] = TupleComparator<field_count, 0, types_info>::Compare;
+	}
+};
+
+template<int field_count, int skip_fields, int types_info>
+struct SkipInstaniator
+	: SkipInstaniator<field_count, skip_fields - 1, types_info> {
+	SkipInstaniator<field_count, skip_fields, types_info> (Comparer* arr)
+		: SkipInstaniator<field_count, skip_fields - 1, types_info>(arr) {
+		arr[skip_fields] = TupleComparator<field_count, skip_fields, types_info>::Compare;
+	}
+};
+
+#include <signal.h>
+
+template<int field_count, int types_info>
+inline int
+tuple_compare_hint_tpl(const struct tuple *tuple_a, const struct tuple *tuple_b,
+		       const struct key_def *key_def, compare_hint *hint)
+{
+	static Comparer skip_func_arr[field_count + 1];
+	static const SkipInstaniator<field_count, field_count, types_info> inst(skip_func_arr);
+
+	struct key_part *part = key_def->parts;
+	struct tuple_format *format_a = tuple_format(tuple_a);
+	struct tuple_format *format_b = tuple_format(tuple_b);
+
+	int r = skip_func_arr[hint->fields_hit](tuple_a, tuple_b, format_a, format_b, &part, hint);
+
+	return r;
+}
+
+template<int field_count, int types_info>
+inline int
+tuple_compare_dup_hint_tpl(const struct tuple *tuple_a, const struct tuple *tuple_b,
+		       const struct key_def *key_def, compare_hint *hint)
+{
+	int r = tuple_compare_hint_tpl<field_count, types_info>(tuple_a, tuple_b, key_def, hint);
+	if (r == 0)
+		r = tuple_a < tuple_b ? -1 : tuple_a > tuple_b;
+
+	return r;
+}
 
 /** These functions are implemented in tuple_convert.cc. */
 

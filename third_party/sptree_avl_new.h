@@ -102,22 +102,24 @@ typedef struct sptree_node_pointers {
 
 #define SPTREE_AVL_DEF(name, realloc)                                                     \
 typedef struct sptree_##name {                                                            \
-    void                    *members;                                                     \
-    sptree_node_pointers    *lrpointers;                                                  \
+    void *members;                                                                        \
+    sptree_node_pointers *lrpointers;                                                     \
                                                                                           \
-    spnode_t                nmember;                                                      \
-    spnode_t                ntotal;                                                       \
+    spnode_t nmember;                                                                     \
+    spnode_t ntotal;                                                                      \
                                                                                           \
-    int                     (*compare)(const void *key, const void *elem, void *, compare_hint *);        \
-    int                     (*elemcompare)(const void *e1, const void *e2, void *, compare_hint *);       \
-    void*                   arg;                                                          \
-    size_t                  elemsize;                                                     \
+    int (*compare)(const void *key, const void *elem, void *, compare_hint *);            \
+    int (*elemcompare)(const void *e1, const void *e2, void *, compare_hint *);           \
+    void* arg;                                                                            \
+    size_t elemsize;                                                                      \
                                                                                           \
-    spnode_t                root;                                                         \
-    spnode_t                garbage_head;                                                 \
-    spnode_t                size;                                                         \
-    spnode_t                max_size;                                                     \
-    spnode_t                max_depth;                                                    \
+    spnode_t root;                                                                        \
+    spnode_t garbage_head;                                                                \
+    spnode_t size;                                                                        \
+    spnode_t max_size;                                                                    \
+    spnode_t max_depth;                                                                   \
+    spnode_t min_item;                                                                    \
+    spnode_t max_item;                                                                    \
 } sptree_##name;                                                                          \
                                                                                           \
 static spnode_t                                                                           \
@@ -190,8 +192,8 @@ sptree_##name##_check_subtree(sptree_##name *t, spnode_t node) {                
 static inline void                                                                        \
 sptree_##name##_init(sptree_##name *t, size_t elemsize, void *m,                          \
                      spnode_t nm, spnode_t nt,                                            \
-                     int (*compare)(const void *, const void *, void *, compare_hint *),                  \
-                     int (*elemcompare)(const void *, const void *, void *, compare_hint *),              \
+                     int (*compare)(const void *, const void *, void *, compare_hint *),  \
+                     int (*elemcompare)(const void *, const void *, void *, compare_hint *), \
                      void *arg) {                                                         \
     memset(t, 0, sizeof(*t));                                                             \
     t->members = m;                                                                       \
@@ -202,6 +204,7 @@ sptree_##name##_init(sptree_##name *t, size_t elemsize, void *m,                
     t->arg = arg;                                                                         \
     t->elemsize = elemsize;                                                               \
     t->garbage_head = t->root = SPNIL;                                                    \
+    t->min_item = t->max_item = SPNIL;                                                    \
                                                                                           \
     if (t->ntotal == 0 || t->members == NULL) { /* from scratch */                        \
         if (t->ntotal == 0) {                                                             \
@@ -219,11 +222,15 @@ sptree_##name##_init(sptree_##name *t, size_t elemsize, void *m,                
         t->root = 0;                                                                      \
         _SET_SPNODE_RIGHT(0, SPNIL);                                                      \
         _SET_SPNODE_LEFT(0, SPNIL);                                                       \
+        t->min_item = 0;                                                                  \
+        t->max_item = 0;                                                                  \
     } else if (t->nmember > 1)    {                                                       \
-        qsort_arg_hint(t->members, t->nmember, elemsize, t->elemcompare, t->arg);              \
+        qsort_arg_hint(t->members, t->nmember, elemsize, t->elemcompare, t->arg);         \
         /* create tree */                                                                 \
         t->root = sptree_##name##_mktree(t, 1, 0, t->nmember, 0);                         \
         /*sptree_##name##_check_subtree(t, t->root);*/                                    \
+        t->min_item = 0;                                                                  \
+        t->max_item = t->nmember - 1;                                                     \
     }                                                                                     \
 }                                                                                         \
                                                                                           \
@@ -243,59 +250,47 @@ sptree_##name##_node_is_deleted(const sptree_##name *t, spnode_t node) {        
                                                                                           \
 static inline void*                                                                       \
 sptree_##name##_first(const sptree_##name *t) {                                           \
-    spnode_t    node = t->root;                                                           \
-    spnode_t    first = SPNIL;                                                            \
-    while (node != SPNIL) {                                                               \
-       first = node;                                                                 \
-       node = _GET_SPNODE_LEFT(node);                                                \
-    }                                                                                     \
-    if (first != SPNIL)                                                                   \
-	return ITHELEM(t, first);                                                         \
+    if (t->min_item != SPNIL)                                                             \
+	return ITHELEM(t, t->min_item);                                                   \
     return NULL;                                                                          \
 }                                                                                         \
-											    \
+                                                                                          \
 static inline void*                                                                       \
 sptree_##name##_last(const sptree_##name *t) {                                            \
-    spnode_t    node = t->root;                                                           \
-    spnode_t    last = SPNIL;                                                             \
-    while (node != SPNIL) {                                                               \
-	last = node;                                                                  \
-	node = _GET_SPNODE_RIGHT(node);                                               \
-    }                                                                                     \
-    if (last != SPNIL)                                                                    \
-	return ITHELEM(t, last);                                                          \
+    if (t->max_item != SPNIL)                                                             \
+	return ITHELEM(t, t->max_item);                                                   \
     return NULL;                                                                          \
 }                                                                                         \
-                                                                                                                                                                                    \
+                                                                                          \
 static inline void*                                                                       \
 sptree_##name##_find(const sptree_##name *t, void *k) {                                   \
     spnode_t    node = t->root;                                                           \
-    if (node == SPNIL) { \
-        return NULL; \
-    } \
-    compare_hint lh = {0, 0}, rh = {0, 0}, mh = {0, 0}; \
-    int r = t->compare(k, ITHELEM(t, node), t->arg, &mh);                                      \
-    if (r > 0) {                                                                      \
-        node = _GET_SPNODE_RIGHT(node);                                               \
-        lh = mh; \
-        (void)t->compare(k, sptree_##name##_last(t), t->arg, &rh); \
-    } else if (r < 0) {                                                               \
-        node = _GET_SPNODE_LEFT(node);                                                \
-        rh = mh; \
-        (void)t->compare(k, sptree_##name##_first(t), t->arg, &lh); \
-    } else {                                                                          \
-        return ITHELEM(t, node);                                                      \
-    }                                                                                 \
-    \
+    if (node == SPNIL) {                                                                  \
+        return NULL;                                                                      \
+    }                                                                                     \
+    compare_hint lh = {0, 0}, rh = {0, 0}, mh = {0, 0};                                   \
+    int r = t->compare(k, ITHELEM(t, node), t->arg, &mh);                                 \
+    if (r > 0) {                                                                          \
+        node = _GET_SPNODE_RIGHT(node);                                                   \
+        lh = mh;                                                                          \
+        (void)t->compare(k, sptree_##name##_last(t), t->arg, &rh);                        \
+    } else if (r < 0) {                                                                   \
+        node = _GET_SPNODE_LEFT(node);                                                    \
+        rh = mh;                                                                          \
+        (void)t->compare(k, sptree_##name##_first(t), t->arg, &lh);                       \
+    } else {                                                                              \
+        return ITHELEM(t, node);                                                          \
+    }                                                                                     \
+                                                                                          \
     while(node != SPNIL) {                                                                \
-	min_hint(&lh, &rh, &mh); \
-	int r = t->compare(k, ITHELEM(t, node), t->arg, &mh);                                      \
+	min_hint(&lh, &rh, &mh);                                                          \
+	int r = t->compare(k, ITHELEM(t, node), t->arg, &mh);                             \
         if (r > 0) {                                                                      \
             node = _GET_SPNODE_RIGHT(node);                                               \
-            lh = mh; \
+            lh = mh;                                                                      \
         } else if (r < 0) {                                                               \
             node = _GET_SPNODE_LEFT(node);                                                \
-            rh = mh; \
+            rh = mh;                                                                      \
         } else {                                                                          \
             return ITHELEM(t, node);                                                      \
         }                                                                                 \
@@ -313,14 +308,6 @@ sptree_##name##_random(const sptree_##name *t, spnode_t rnd) {                  
     }                                                                                     \
                                                                                           \
     return NULL;                                                                          \
-}                                                                                         \
-static inline spnode_t                                                                    \
-sptree_##name##_size_of_subtree(sptree_##name *t, spnode_t node) {                        \
-    if (node == SPNIL)                                                                    \
-        return 0;                                                                         \
-    return 1 +                                                                            \
-        sptree_##name##_size_of_subtree(t, _GET_SPNODE_LEFT(node)) +                      \
-        sptree_##name##_size_of_subtree(t, _GET_SPNODE_RIGHT(node));                      \
 }                                                                                         \
 static inline spnode_t                                                                    \
 sptree_##name##_get_place(sptree_##name *t) {                                             \
@@ -424,6 +411,7 @@ sptree_##name##_replace(sptree_##name *t, void *v, void **p_old) {              
         _SET_SPNODE_BALANCE(0, 0);                                                        \
         memcpy(t->members, v, t->elemsize);                                               \
         t->root = 0;                                                                      \
+        t->min_item = t->max_item = 0;                                                    \
         t->garbage_head = SPNIL;                                                          \
         t->nmember = 1;                                                                   \
         t->size=1;                                                                        \
@@ -431,75 +419,87 @@ sptree_##name##_replace(sptree_##name *t, void *v, void **p_old) {              
             *p_old = NULL;                                                                \
         return;                                                                           \
     } else {                                                                              \
-	compare_hint lh = {0, 0}, rh = {0, 0}, mh = {0, 0}; \
+	compare_hint lh = {0, 0}, rh = {0, 0}, mh = {0, 0};                               \
         spnode_t    parent = t->root;                                                     \
-        int r = t->elemcompare(v, ITHELEM(t, parent), t->arg, &mh);                        \
-        if (r==0) {                                                                   \
-            if (p_old)                                                                \
-                memcpy(*p_old, ITHELEM(t, parent), t->elemsize);                      \
-            memcpy(ITHELEM(t, parent), v, t->elemsize);                               \
-            return;                                                                   \
-        }                                                                             \
-        path[depth] = parent;                                                         \
-        depth++;                                                                      \
-        int need_deeper_search = 1; \
-        if (r>0) {                                                                    \
-            if (_GET_SPNODE_RIGHT(parent) == SPNIL) {                                 \
-                node = sptree_##name##_get_place(t);                                  \
-                memcpy(ITHELEM(t, node), v, t->elemsize);                             \
-                _SET_SPNODE_RIGHT(parent, node);                                      \
-                need_deeper_search = 0;                                                                \
-            } else {                                                                  \
-                parent = _GET_SPNODE_RIGHT(parent);                                   \
-                lh = mh; \
-                (void)t->elemcompare(v, sptree_##name##_last(t), t->arg, &rh); \
-            }                                                                         \
-        } else {                                                                      \
-            if (_GET_SPNODE_LEFT(parent) == SPNIL) {                                  \
-                node = sptree_##name##_get_place(t);                                  \
-                memcpy(ITHELEM(t, node), v, t->elemsize);                             \
-                _SET_SPNODE_LEFT(parent, node);                                       \
-                need_deeper_search = 0;                                                                \
-            } else {                                                                  \
-                parent = _GET_SPNODE_LEFT(parent);                                    \
-                rh = mh; \
-                (void)t->elemcompare(v, sptree_##name##_first(t), t->arg, &lh); \
-            }                                                                         \
-        }                                                                             \
-        if (need_deeper_search) { \
-		for(;;)    {                                                                      \
-		    min_hint(&lh, &rh, &mh); \
-		    int r = t->elemcompare(v, ITHELEM(t, parent), t->arg, &mh);                        \
-		    if (r==0) {                                                                   \
-			if (p_old)                                                                \
-			    memcpy(*p_old, ITHELEM(t, parent), t->elemsize);                      \
-			memcpy(ITHELEM(t, parent), v, t->elemsize);                               \
-			return;                                                                   \
-		    }                                                                             \
-		    path[depth] = parent;                                                         \
-		    depth++;                                                                      \
-		    if (r>0) {                                                                    \
-			if (_GET_SPNODE_RIGHT(parent) == SPNIL) {                                 \
-			    node = sptree_##name##_get_place(t);                                  \
-			    memcpy(ITHELEM(t, node), v, t->elemsize);                             \
-			    _SET_SPNODE_RIGHT(parent, node);                                      \
-			    break;                                                                \
-			} else {                                                                  \
-			    parent = _GET_SPNODE_RIGHT(parent);                                   \
-			    lh = mh; \
-			}                                                                         \
-		    } else {                                                                      \
-			if (_GET_SPNODE_LEFT(parent) == SPNIL) {                                  \
-			    node = sptree_##name##_get_place(t);                                  \
-			    memcpy(ITHELEM(t, node), v, t->elemsize);                             \
-			    _SET_SPNODE_LEFT(parent, node);                                       \
-			    break;                                                                \
-			} else {                                                                  \
-			    parent = _GET_SPNODE_LEFT(parent);                                    \
-			    rh = mh; \
-			}                                                                         \
-		    }                                                                             \
-		}                                                                                 \
+        int r = t->elemcompare(v, ITHELEM(t, parent), t->arg, &mh);                       \
+        if (r==0) {                                                                       \
+            if (p_old)                                                                    \
+                memcpy(*p_old, ITHELEM(t, parent), t->elemsize);                          \
+            memcpy(ITHELEM(t, parent), v, t->elemsize);                                   \
+            return;                                                                       \
+        }                                                                                 \
+        path[depth] = parent;                                                             \
+        depth++;                                                                          \
+        int right_only = 1;                                                               \
+        int left_only = 1;                                                                \
+        int need_deeper_search = 1;                                                       \
+        if (r>0) {                                                                        \
+            if (_GET_SPNODE_RIGHT(parent) == SPNIL) {                                     \
+                node = sptree_##name##_get_place(t);                                      \
+                memcpy(ITHELEM(t, node), v, t->elemsize);                                 \
+                _SET_SPNODE_RIGHT(parent, node);                                          \
+                t->max_item = node;                                                       \
+                need_deeper_search = 0;                                                   \
+            } else {                                                                      \
+        	left_only = 0;                                                            \
+                parent = _GET_SPNODE_RIGHT(parent);                                       \
+                lh = mh;                                                                  \
+                (void)t->elemcompare(v, sptree_##name##_last(t), t->arg, &rh);            \
+            }                                                                             \
+        } else {                                                                          \
+            if (_GET_SPNODE_LEFT(parent) == SPNIL) {                                      \
+                node = sptree_##name##_get_place(t);                                      \
+                memcpy(ITHELEM(t, node), v, t->elemsize);                                 \
+                _SET_SPNODE_LEFT(parent, node);                                           \
+                t->min_item = node;                                                       \
+                need_deeper_search = 0;                                                   \
+            } else {                                                                      \
+                right_only = 0;                                                           \
+                parent = _GET_SPNODE_LEFT(parent);                                        \
+                rh = mh;                                                                  \
+                (void)t->elemcompare(v, sptree_##name##_first(t), t->arg, &lh);           \
+            }                                                                             \
+        }                                                                                 \
+        if (need_deeper_search) {                                                         \
+		for(;;)    {                                                              \
+		    min_hint(&lh, &rh, &mh);                                              \
+		    int r = t->elemcompare(v, ITHELEM(t, parent), t->arg, &mh);           \
+		    if (r==0) {                                                           \
+			if (p_old)                                                        \
+			    memcpy(*p_old, ITHELEM(t, parent), t->elemsize);              \
+			memcpy(ITHELEM(t, parent), v, t->elemsize);                       \
+			return;                                                           \
+		    }                                                                     \
+		    path[depth] = parent;                                                 \
+		    depth++;                                                              \
+		    if (r>0) {                                                            \
+			if (_GET_SPNODE_RIGHT(parent) == SPNIL) {                         \
+			    node = sptree_##name##_get_place(t);                          \
+			    memcpy(ITHELEM(t, node), v, t->elemsize);                     \
+			    _SET_SPNODE_RIGHT(parent, node);                              \
+			    if (right_only)                                               \
+				    t->max_item = node;                                   \
+			    break;                                                        \
+			} else {                                                          \
+	        	    left_only = 0;                                                \
+			    parent = _GET_SPNODE_RIGHT(parent);                           \
+			    lh = mh;                                                      \
+			}                                                                 \
+		    } else {                                                              \
+			if (_GET_SPNODE_LEFT(parent) == SPNIL) {                          \
+			    node = sptree_##name##_get_place(t);                          \
+			    memcpy(ITHELEM(t, node), v, t->elemsize);                     \
+			    _SET_SPNODE_LEFT(parent, node);                               \
+			    if (left_only)                                                \
+				    t->min_item = node;                                   \
+			    break;                                                        \
+			} else {                                                          \
+			    right_only = 0;                                               \
+			    parent = _GET_SPNODE_LEFT(parent);                            \
+			    rh = mh;                                                      \
+			}                                                                 \
+		    }                                                                     \
+		}                                                                         \
 	}                                                                                 \
     }                                                                                     \
     if (p_old)                                                                            \
@@ -513,7 +513,7 @@ sptree_##name##_replace(sptree_##name *t, void *v, void **p_old) {              
                                                                                           \
 	path[depth] = node;                                                               \
     while(depth > 0) {                                                                    \
-    	spnode_t node = path[depth];                                                      \
+        spnode_t node = path[depth];                                                      \
         spnode_t parent = path[depth - 1];                                                \
         if(_GET_SPNODE_RIGHT(parent) == node) {                                           \
         	if(_GET_SPNODE_BALANCE(parent) < 0) {                                     \
@@ -556,7 +556,7 @@ sptree_##name##_replace(sptree_##name *t, void *v, void **p_old) {              
         		}                                                                 \
         	}                                                                         \
         }                                                                                 \
-    	depth--;                                                                          \
+        depth--;                                                                          \
     }                                                                                     \
     t->root = path[0];                                                                    \
     /*sptree_##name##_check_subtree(t, t->root);*/                                        \
@@ -569,35 +569,39 @@ sptree_##name##_delete(sptree_##name *t, void *k) {                             
     spnode_t    depth = 0;                                                                \
     spnode_t    path[MAX_DEPTH];                                                          \
     int            lr = 0;                                                                \
-    compare_hint lh = {0, 0}, rh = {0, 0}, mh = {0, 0}; \
-    int first_round = 1; \
+    compare_hint lh = {0, 0}, rh = {0, 0}, mh = {0, 0};                                   \
+    int first_round = 1;                                                                  \
     while(node != SPNIL) {                                                                \
-    	path[depth++] = node;                                                             \
-        int r; \
-    	if (first_round) { \
-    		first_round = 0; \
-    	    	r = t->elemcompare(k, ITHELEM(t, node), t->arg, &mh);                              \
-    	    	if (r > 0) { \
-    	                (void)t->elemcompare(k, sptree_##name##_last(t), t->arg, &rh); \
-    	    	} else if (r < 0) { \
-    	    		(void)t->elemcompare(k, sptree_##name##_first(t), t->arg, &lh); \
-    	    	} \
-    	} else { \
-    		min_hint(&lh, &rh, &mh); \
-		r = t->elemcompare(k, ITHELEM(t, node), t->arg, &mh);                              \
-    	} \
+        path[depth++] = node;                                                             \
+        int r;                                                                            \
+        if (first_round) {                                                                \
+                first_round = 0;                                                          \
+                r = t->elemcompare(k, ITHELEM(t, node), t->arg, &mh);                     \
+                if (r > 0) {                                                              \
+                        (void)t->elemcompare(k, sptree_##name##_last(t), t->arg, &rh);    \
+                } else if (r < 0) {                                                       \
+                        (void)t->elemcompare(k, sptree_##name##_first(t), t->arg, &lh);   \
+                }                                                                         \
+    	} else {                                                                          \
+                min_hint(&lh, &rh, &mh);                                                  \
+                r = t->elemcompare(k, ITHELEM(t, node), t->arg, &mh);                     \
+        }                                                                                 \
         if (r > 0) {                                                                      \
             parent = node;                                                                \
             node = _GET_SPNODE_RIGHT(node);                                               \
             lr = +1;                                                                      \
-            lh = mh; \
+            lh = mh;                                                                      \
         } else if (r < 0) {                                                               \
             parent = node;                                                                \
             node = _GET_SPNODE_LEFT(node);                                                \
             lr = -1;                                                                      \
-            rh = mh; \
+            rh = mh;                                                                      \
         } else {/* found */                                                               \
             if (_GET_SPNODE_LEFT(node) == SPNIL && _GET_SPNODE_RIGHT(node) == SPNIL) {    \
+                if (t->min_item == node)                                                  \
+            	    t->min_item = parent;                                                 \
+		if (t->max_item == node)                                                  \
+		    t->max_item = parent;                                                 \
             	path[depth-1] = SPNIL;                                                    \
                 if ( parent == SPNIL )                                                    \
                     t->root = SPNIL;                                                      \
@@ -607,28 +611,42 @@ sptree_##name##_delete(sptree_##name *t, void *k) {                             
                     _SET_SPNODE_RIGHT(parent, SPNIL);                                     \
             } else if (_GET_SPNODE_LEFT(node) == SPNIL) {                                 \
                 spnode_t    child = _GET_SPNODE_RIGHT(node);                              \
-            	path[depth-1] = child;                                                    \
+                if (t->min_item == node) {                                                \
+                	spnode_t min_item_search = child;                                 \
+                	spnode_t tmp;                                                     \
+                	while ((tmp = _GET_SPNODE_LEFT(min_item_search)) != SPNIL)        \
+                		min_item_search = tmp;                                    \
+                	t->min_item = min_item_search;                                    \
+                }                                                                         \
+                path[depth-1] = child;                                                    \
                 if (parent == SPNIL) t->root = child;                                     \
                 else if (lr <0) _SET_SPNODE_LEFT(parent, child);                          \
                 else _SET_SPNODE_RIGHT(parent, child);                                    \
             } else if (_GET_SPNODE_RIGHT(node) == SPNIL) {                                \
                 spnode_t    child = _GET_SPNODE_LEFT(node);                               \
-            	path[depth-1] = child;                                                    \
+                if (t->max_item == node) {                                                \
+                	spnode_t max_item_search = child;                                 \
+                	spnode_t tmp;                                                     \
+                	while ((tmp = _GET_SPNODE_RIGHT(max_item_search)) != SPNIL)       \
+                		max_item_search = tmp;                                    \
+                	t->max_item = max_item_search;                                    \
+                }                                                                         \
+                path[depth-1] = child;                                                    \
                 if (parent == SPNIL) t->root = child;                                     \
                 else if (lr <0) _SET_SPNODE_LEFT(parent, child);                          \
                 else _SET_SPNODE_RIGHT(parent, child);                                    \
             } else {                                                                      \
-            	spnode_t todel;                                                           \
-            	if (_GET_SPNODE_BALANCE(node) >= 0) {                                     \
+                spnode_t todel;                                                           \
+                if (_GET_SPNODE_BALANCE(node) >= 0) {                                     \
                     todel = _GET_SPNODE_RIGHT(node);                                      \
-            		path[depth++] = todel;                                            \
+            	    path[depth++] = todel;                                                \
                     parent = SPNIL;                                                       \
                     lr = 1;                                                               \
                     for(;;) {                                                             \
                         if ( _GET_SPNODE_LEFT(todel) != SPNIL ) {                         \
                             parent = todel;                                               \
                             todel = _GET_SPNODE_LEFT(todel);                              \
-                    		path[depth++] = todel;                                    \
+                    	    path[depth++] = todel;                                        \
                             lr = -1;                                                      \
                         } else                                                            \
                             break;                                                        \
@@ -640,14 +658,14 @@ sptree_##name##_delete(sptree_##name *t, void *k) {                             
                         _SET_SPNODE_RIGHT(node, _GET_SPNODE_RIGHT(todel));                \
             	} else {                                                                  \
                     todel = _GET_SPNODE_LEFT(node);                                       \
-            		path[depth++] = todel;                                            \
+            	    path[depth++] = todel;                                                \
                     parent = SPNIL;                                                       \
                     lr = -1;                                                              \
                     for(;;) {                                                             \
                         if ( _GET_SPNODE_RIGHT(todel) != SPNIL ) {                        \
                             parent = todel;                                               \
                             todel = _GET_SPNODE_RIGHT(todel);                             \
-                    		path[depth++] = todel;                                    \
+                    	    path[depth++] = todel;                                        \
                             lr = 1;                                                       \
                         } else                                                            \
                             break;                                                        \
@@ -657,7 +675,7 @@ sptree_##name##_delete(sptree_##name *t, void *k) {                             
                         _SET_SPNODE_RIGHT(parent, _GET_SPNODE_LEFT(todel));               \
                     else                                                                  \
                         _SET_SPNODE_LEFT(node, _GET_SPNODE_LEFT(todel));                  \
-            	}                                                                         \
+                }                                                                         \
                 node = todel; /* node to delete */                                        \
             }                                                                             \
                                                                                           \
@@ -680,7 +698,7 @@ sptree_##name##_delete(sptree_##name *t, void *k) {                             
                                                                                           \
     depth--;                                                                              \
     while(depth > 0) {                                                                    \
-    	spnode_t node = path[depth];                                                      \
+        spnode_t node = path[depth];                                                      \
         spnode_t parent = path[depth - 1];                                                \
         if(lr == 1 || (lr == 0 && _GET_SPNODE_RIGHT(parent) == node)) {                   \
         	if(_GET_SPNODE_BALANCE(parent) == 0) {                                    \
@@ -723,8 +741,8 @@ sptree_##name##_delete(sptree_##name *t, void *k) {                             
         		}                                                                 \
         	}                                                                         \
         }                                                                                 \
-    	lr = 0;                                                                           \
-    	depth--;                                                                          \
+        lr = 0;                                                                           \
+        depth--;                                                                          \
     }                                                                                     \
     t->root = path[0];                                                                    \
     /*sptree_##name##_check_subtree(t, t->root);*/                                        \
@@ -847,9 +865,9 @@ sptree_##name##_iterator_init_set(const sptree_##name *t, sptree_##name##_iterat
     (*i)->stack[0] = t->root;                                                             \
                                                                                           \
     node = t->root;                                                                       \
-    compare_hint lh = {0, 0}, rh = {0, 0}, mh = {0, 0}; \
-    if (node != SPNIL) {                                                                \
-        cmp = t->compare(k, ITHELEM(t, node), t->arg, &mh);                                    \
+    compare_hint lh = {0, 0}, rh = {0, 0}, mh = {0, 0};                                   \
+    if (node != SPNIL) {                                                                  \
+        cmp = t->compare(k, ITHELEM(t, node), t->arg, &mh);                               \
                                                                                           \
         (*i)->level++;                                                                    \
         (*i)->stack[(*i)->level] = node;                                                  \
@@ -857,22 +875,22 @@ sptree_##name##_iterator_init_set(const sptree_##name *t, sptree_##name##_iterat
         if (cmp > 0) {                                                                    \
             (*i)->level--; /* exclude current node from path, ie "mark as visited" */     \
             node = _GET_SPNODE_RIGHT(node);                                               \
-            lh = mh; \
-            (void)t->compare(k, sptree_##name##_last(t), t->arg, &rh); \
+            lh = mh;                                                                      \
+            (void)t->compare(k, sptree_##name##_last(t), t->arg, &rh);                    \
         } else if (cmp < 0) {                                                             \
             node = _GET_SPNODE_LEFT(node);                                                \
-            rh = mh; \
-            (void)t->compare(k, sptree_##name##_first(t), t->arg, &lh); \
+            rh = mh;                                                                      \
+            (void)t->compare(k, sptree_##name##_first(t), t->arg, &lh);                   \
         } else {                                                                          \
             lastLevelEq = (*i)->level;                                                    \
             node = _GET_SPNODE_LEFT(node); /* one way iterator: from left to right */     \
-            rh = mh; \
-            (void)t->compare(k, sptree_##name##_first(t), t->arg, &lh); \
+            rh = mh;                                                                      \
+            (void)t->compare(k, sptree_##name##_first(t), t->arg, &lh);                   \
         }                                                                                 \
     }                                                                                     \
     while(node != SPNIL) {                                                                \
-	min_hint(&lh, &rh, &mh); \
-        cmp = t->compare(k, ITHELEM(t, node), t->arg, &mh);                                    \
+	min_hint(&lh, &rh, &mh);                                                          \
+        cmp = t->compare(k, ITHELEM(t, node), t->arg, &mh);                               \
                                                                                           \
         (*i)->level++;                                                                    \
         (*i)->stack[(*i)->level] = node;                                                  \
@@ -880,14 +898,14 @@ sptree_##name##_iterator_init_set(const sptree_##name *t, sptree_##name##_iterat
         if (cmp > 0) {                                                                    \
             (*i)->level--; /* exclude current node from path, ie "mark as visited" */     \
             node = _GET_SPNODE_RIGHT(node);                                               \
-            lh = mh; \
+            lh = mh;                                                                      \
         } else if (cmp < 0) {                                                             \
             node = _GET_SPNODE_LEFT(node);                                                \
-            rh = mh; \
+            rh = mh;                                                                      \
         } else {                                                                          \
             lastLevelEq = (*i)->level;                                                    \
             node = _GET_SPNODE_LEFT(node); /* one way iterator: from left to right */     \
-            rh = mh; \
+            rh = mh;                                                                      \
         }                                                                                 \
     }                                                                                     \
                                                                                           \
@@ -932,9 +950,9 @@ sptree_##name##_iterator_reverse_init_set(const sptree_##name *t,               
     (*i)->stack[0] = t->root;                                                             \
                                                                                           \
     node = t->root;                                                                       \
-    compare_hint lh = {0, 0}, rh = {0, 0}, mh = {0, 0}; \
-    if (node != SPNIL) {                                                                \
-        cmp = t->compare(k, ITHELEM(t, node), t->arg, &mh);                                    \
+    compare_hint lh = {0, 0}, rh = {0, 0}, mh = {0, 0};                                   \
+    if (node != SPNIL) {                                                                  \
+        cmp = t->compare(k, ITHELEM(t, node), t->arg, &mh);                               \
                                                                                           \
         (*i)->level++;                                                                    \
         (*i)->stack[(*i)->level] = node;                                                  \
@@ -942,21 +960,21 @@ sptree_##name##_iterator_reverse_init_set(const sptree_##name *t,               
         if (cmp < 0) {                                                                    \
             (*i)->level--;                                                                \
             node = _GET_SPNODE_LEFT(node);                                                \
-            rh = mh; \
-            (void)t->compare(k, sptree_##name##_first(t), t->arg, &lh); \
+            rh = mh;                                                                      \
+            (void)t->compare(k, sptree_##name##_first(t), t->arg, &lh);                   \
         } else if (cmp > 0) {                                                             \
             node = _GET_SPNODE_RIGHT(node);                                               \
-            lh = mh; \
-            (void)t->compare(k, sptree_##name##_last(t), t->arg, &rh); \
+            lh = mh;                                                                      \
+            (void)t->compare(k, sptree_##name##_last(t), t->arg, &rh);                    \
         } else {                                                                          \
             lastLevelEq = (*i)->level;                                                    \
             node = _GET_SPNODE_RIGHT(node);                                               \
-            lh = mh; \
-            (void)t->compare(k, sptree_##name##_last(t), t->arg, &rh); \
+            lh = mh;                                                                      \
+            (void)t->compare(k, sptree_##name##_last(t), t->arg, &rh);                    \
         }                                                                                 \
     }                                                                                     \
     while(node != SPNIL) {                                                                \
-        cmp = t->compare(k, ITHELEM(t, node), t->arg, &mh);                                    \
+        cmp = t->compare(k, ITHELEM(t, node), t->arg, &mh);                               \
                                                                                           \
         (*i)->level++;                                                                    \
         (*i)->stack[(*i)->level] = node;                                                  \
@@ -964,14 +982,14 @@ sptree_##name##_iterator_reverse_init_set(const sptree_##name *t,               
         if (cmp < 0) {                                                                    \
             (*i)->level--;                                                                \
             node = _GET_SPNODE_LEFT(node);                                                \
-            rh = mh; \
+            rh = mh;                                                                      \
         } else if (cmp > 0) {                                                             \
             node = _GET_SPNODE_RIGHT(node);                                               \
-            lh = mh; \
+            lh = mh;                                                                      \
         } else {                                                                          \
             lastLevelEq = (*i)->level;                                                    \
             node = _GET_SPNODE_RIGHT(node);                                               \
-            lh = mh; \
+            lh = mh;                                                                      \
         }                                                                                 \
     }                                                                                     \
                                                                                           \

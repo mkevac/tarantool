@@ -64,6 +64,8 @@ public:
 
 // protected:
 	sptree_index tree;
+private:
+	int calc_types_info();
 };
 
 #endif /* TARANTOOL_BOX_TREE_INDEX_H_INCLUDED */
