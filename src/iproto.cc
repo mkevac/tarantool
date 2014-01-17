@@ -158,14 +158,14 @@ iproto_enqueue_request(struct iproto_queue *i_queue)
 {
 	/* If the queue is full, invoke the handler to work it off. */
 	if (i_queue->end == i_queue->size)
-		ev_invoke(&i_queue->watcher, EV_CUSTOM);
+		ev_invoke(cord_self()->loop, &i_queue->watcher, EV_CUSTOM);
 	assert(i_queue->end < i_queue->size);
 	/*
 	 * There were some queued requests, ensure they are
 	 * handled.
 	 */
 	if (iproto_queue_is_empty(i_queue))
-		ev_feed_event(&request_queue.watcher, EV_CUSTOM);
+		ev_feed_event(cord_self()->loop, &request_queue.watcher, EV_CUSTOM);
 	return i_queue->queue + i_queue->end++;
 }
 
@@ -193,9 +193,11 @@ iproto_cache_fiber(struct iproto_queue *i_queue)
 
 /** Create fibers to handle all outstanding tasks. */
 static void
-iproto_queue_schedule(struct ev_async *watcher,
+iproto_queue_schedule(struct ev_loop *loop, struct ev_async *watcher,
 		      int events __attribute__((unused)))
 {
+	(void) loop;
+
 	struct iproto_queue *i_queue = (struct iproto_queue *) watcher->data;
 	while (! iproto_queue_is_empty(i_queue)) {
 
@@ -288,10 +290,10 @@ iproto_connection_is_idle(struct iproto_connection *con)
 }
 
 static void
-iproto_connection_on_input(struct ev_io *watcher,
+iproto_connection_on_input(struct ev_loop *loop, struct ev_io *watcher,
 			   int revents __attribute__((unused)));
 static void
-iproto_connection_on_output(struct ev_io *watcher,
+iproto_connection_on_output(struct ev_loop *loop, struct ev_io *watcher,
 			    int revents __attribute__((unused)));
 
 static void
@@ -337,8 +339,8 @@ iproto_connection_destroy(struct iproto_connection *con)
 static inline void
 iproto_connection_shutdown(struct iproto_connection *con)
 {
-	ev_io_stop(&con->input);
-	ev_io_stop(&con->output);
+	ev_io_stop(cord_self()->loop, &con->input);
+	ev_io_stop(cord_self()->loop, &con->output);
 	close(con->input.fd);
 	con->input.fd = con->output.fd = -1;
 	/*
@@ -355,7 +357,8 @@ iproto_connection_shutdown(struct iproto_connection *con)
 	 * twice.
 	 */
 	if (iproto_connection_is_idle(con)) {
-		struct iproto_request *ireq = iproto_enqueue_request(&request_queue);
+		struct iproto_request *ireq =
+			iproto_enqueue_request(&request_queue);
 		iproto_request_init(ireq, con, con->iobuf[0],
 				    iproto_process_disconnect,
 				    0, 0, 0, 0);
@@ -510,8 +513,7 @@ iproto_enqueue_batch(struct iproto_connection *con, struct ibuf *in)
 		uint32_t header[2] = { 0, 0 };
 		mp_decode_imap(&pos, reqend, header);
 
-		struct iproto_request *ireq =
-			iproto_enqueue_request(&request_queue);
+		struct iproto_request *ireq = iproto_enqueue_request(&request_queue);
 		iproto_request_init(ireq, con, con->iobuf[0],
 				    iproto_process_request,
 				    header[IPROTO_CODE], header[IPROTO_SYNC],
@@ -527,7 +529,7 @@ iproto_enqueue_batch(struct iproto_connection *con, struct ibuf *in)
 }
 
 static void
-iproto_connection_on_input(struct ev_io *watcher,
+iproto_connection_on_input(struct ev_loop *loop, struct ev_io *watcher,
 			   int revents __attribute__((unused)))
 {
 	struct iproto_connection *con =
@@ -539,7 +541,7 @@ iproto_connection_on_input(struct ev_io *watcher,
 		/* Ensure we have sufficient space for the next round.  */
 		struct iobuf *iobuf = iproto_connection_input_iobuf(con);
 		if (iobuf == NULL) {
-			ev_io_stop(&con->input);
+			ev_io_stop(loop, &con->input);
 			return;
 		}
 
@@ -547,7 +549,7 @@ iproto_connection_on_input(struct ev_io *watcher,
 		/* Read input. */
 		int nrd = sio_read(fd, in->end, ibuf_unused(in));
 		if (nrd < 0) {                  /* Socket is not ready. */
-			ev_io_start(&con->input);
+			ev_io_start(loop, &con->input);
 			return;
 		}
 		if (nrd == 0) {                 /* EOF */
@@ -564,7 +566,7 @@ iproto_connection_on_input(struct ev_io *watcher,
 		 * supplies data.
 		 */
 		if (!ev_is_active(&con->input))
-			ev_feed_event(&con->input, EV_READ);
+			ev_feed_event(loop, &con->input, EV_READ);
 	} catch (const Exception& e) {
 		e.log();
 		iproto_connection_shutdown(con);
@@ -621,8 +623,8 @@ iproto_flush(struct iobuf *iobuf, int fd, struct obuf_svp *svp)
 }
 
 static void
-iproto_connection_on_output(struct ev_io *watcher,
-			 int revent __attribute__((unused)))
+iproto_connection_on_output(struct ev_loop *loop, struct ev_io *watcher,
+			    int revent __attribute__((unused)))
 {
 	struct iproto_connection *con = (struct iproto_connection *) watcher->data;
 	int fd = con->output.fd;
@@ -632,14 +634,14 @@ iproto_connection_on_output(struct ev_io *watcher,
 		struct iobuf *iobuf;
 		while ((iobuf = iproto_connection_output_iobuf(con))) {
 			if (iproto_flush(iobuf, fd, svp) < 0) {
-				ev_io_start(&con->output);
+				ev_io_start(loop, &con->output);
 				return;
 			}
 			if (! ev_is_active(&con->input))
-				ev_feed_event(&con->input, EV_READ);
+				ev_feed_event(loop, &con->input, EV_READ);
 		}
 		if (ev_is_active(&con->output))
-			ev_io_stop(&con->output);
+			ev_io_stop(loop, &con->output);
 	} catch (const Exception& e) {
 		e.log();
 		iproto_connection_shutdown(con);
@@ -677,7 +679,8 @@ iproto_process_request(struct iproto_request *ireq)
 
 		if (evio_is_active(&con->output)) {
 			if (! ev_is_active(&con->output))
-				ev_feed_event(&con->output, EV_WRITE);
+				ev_feed_event(cord_self()->loop, &con->output,
+					      EV_WRITE);
 		} else if (iproto_connection_is_idle(con)) {
 			iproto_connection_destroy(con);
 		}
@@ -740,7 +743,7 @@ iproto_process_connect(struct iproto_request *request)
 	 */
 	assert(evio_is_active(&con->input));
 	/* Handshake OK, start reading input. */
-	ev_feed_event(&con->input, EV_READ);
+	ev_feed_event(cord_self()->loop, &con->input, EV_READ);
 }
 
 static void
@@ -783,7 +786,7 @@ iproto_init(const char *bind_ipaddr, int primary_port,
 	/* Run a primary server. */
 	if (primary_port != 0) {
 		static struct evio_service primary;
-		evio_service_init(&primary, "primary",
+		evio_service_init(&primary, cord_self()->loop, "primary",
 				  bind_ipaddr, primary_port,
 				  iproto_on_accept, &box_process);
 		evio_service_on_bind(&primary,
@@ -794,7 +797,7 @@ iproto_init(const char *bind_ipaddr, int primary_port,
 	/* Run a secondary server. */
 	if (secondary_port != 0) {
 		static struct evio_service secondary;
-		evio_service_init(&secondary, "secondary",
+		evio_service_init(&secondary, cord_self()->loop, "secondary",
 				  bind_ipaddr, secondary_port,
 				  iproto_on_accept, &box_process_ro);
 		evio_service_start(&secondary);

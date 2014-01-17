@@ -37,8 +37,9 @@
 #include "scoped_guard.h"
 
 static inline void
-fiber_schedule_coio(ev_io *watcher, int event)
+fiber_schedule_coio(struct ev_loop *loop, ev_io *watcher, int event)
 {
+	(void) loop;
 	return fiber_schedule((ev_watcher *) watcher, event);
 }
 
@@ -100,9 +101,9 @@ coio_connect_timeout(struct ev_io *coio, struct sockaddr_in *addr,
 	 * timed out.
 	 */
 	ev_io_set(coio, coio->fd, EV_WRITE);
-	ev_io_start(coio);
+	ev_io_start(cord_self()->loop, coio);
 	bool is_timedout = coio_fiber_yield_timeout(coio, timeout);
-	ev_io_stop(coio);
+	ev_io_stop(cord_self()->loop, coio);
 	fiber_testcancel();
 	if (is_timedout) {
 		errno = ETIMEDOUT;
@@ -134,7 +135,7 @@ coio_connect_addrinfo(struct ev_io *coio, struct addrinfo *ai,
 		      ev_tstamp timeout)
 {
 	ev_tstamp start, delay;
-	evio_timeout_init(&start, &delay, timeout);
+	evio_timeout_init(cord_self()->loop, &start, &delay, timeout);
 	assert(! evio_is_active(coio));
 	bool res = true;
 	while (ai) {
@@ -146,15 +147,15 @@ coio_connect_addrinfo(struct ev_io *coio, struct addrinfo *ai,
 			res = coio_connect_timeout(coio, addr, ai->ai_addrlen,
 						   delay);
 			if (res)
-				evio_close(coio);
+				evio_close(cord_self()->loop, coio);
 			return res;
 		} catch (const SocketError& e) {
 			if (res)
-				evio_close(coio);
+				evio_close(cord_self()->loop, coio);
 			if (ai->ai_next == NULL)
 				throw;
-			ev_now_update();
-			evio_timeout_update(start, &delay);
+			ev_now_update(cord_self()->loop);
+			evio_timeout_update(cord_self()->loop, start, &delay);
 		}
 		ai = ai->ai_next;
 	}
@@ -171,7 +172,7 @@ coio_accept(struct ev_io *coio, struct sockaddr_in *addr,
 	    socklen_t addrlen, ev_tstamp timeout)
 {
 	ev_tstamp start, delay;
-	evio_timeout_init(&start, &delay, timeout);
+	evio_timeout_init(cord_self()->loop, &start, &delay, timeout);
 	while (true) {
 		/* Assume that there are waiting clients
 		 * available */
@@ -183,7 +184,7 @@ coio_accept(struct ev_io *coio, struct sockaddr_in *addr,
 		/* The socket is not ready, yield */
 		if (! ev_is_active(coio)) {
 			ev_io_set(coio, coio->fd, EV_READ);
-			ev_io_start(coio);
+			ev_io_start(cord_self()->loop, coio);
 		}
 		/*
 		 * Yield control to other fibers until the
@@ -195,7 +196,7 @@ coio_accept(struct ev_io *coio, struct sockaddr_in *addr,
 			errno = ETIMEDOUT;
 			tnt_raise(SocketError, coio->fd, "accept");
 		}
-		evio_timeout_update(start, &delay);
+		evio_timeout_update(cord_self()->loop, start, &delay);
 	}
 }
 
@@ -215,13 +216,13 @@ coio_read_ahead_timeout(struct ev_io *coio, void *buf, size_t sz,
 	assert(sz <= bufsiz);
 
 	ev_tstamp start, delay;
-	evio_timeout_init(&start, &delay, timeout);
+	evio_timeout_init(cord_self()->loop, &start, &delay, timeout);
 
 	ssize_t to_read = (ssize_t) sz;
 
 	{
 		auto scoped_guard = make_scoped_guard([=] {
-				ev_io_stop(coio);
+				ev_io_stop(cord_self()->loop, coio);
 		});
 
 		while (true) {
@@ -245,7 +246,7 @@ coio_read_ahead_timeout(struct ev_io *coio, void *buf, size_t sz,
 			/* The socket is not ready, yield */
 			if (! ev_is_active(coio)) {
 				ev_io_set(coio, coio->fd, EV_READ);
-				ev_io_start(coio);
+				ev_io_start(cord_self()->loop, coio);
 			}
 			/*
 			 * Yield control to other fibers until the
@@ -258,7 +259,7 @@ coio_read_ahead_timeout(struct ev_io *coio, void *buf, size_t sz,
 				errno = ETIMEDOUT;
 				return sz - to_read;
 			}
-			evio_timeout_update(start, &delay);
+			evio_timeout_update(cord_self()->loop, start, &delay);
 		}
 	}
 }
@@ -318,11 +319,11 @@ coio_write_timeout(struct ev_io *coio, const void *buf, size_t sz,
 {
 	size_t towrite = sz;
 	ev_tstamp start, delay;
-	evio_timeout_init(&start, &delay, timeout);
+	evio_timeout_init(cord_self()->loop, &start, &delay, timeout);
 
 	{
 		auto scoped_guard = make_scoped_guard([=] {
-				ev_io_stop(coio);
+				ev_io_stop(cord_self()->loop, coio);
 		});
 
 		while (true) {
@@ -340,7 +341,7 @@ coio_write_timeout(struct ev_io *coio, const void *buf, size_t sz,
 			}
 			if (! ev_is_active(coio)) {
 				ev_io_set(coio, coio->fd, EV_WRITE);
-				ev_io_start(coio);
+				ev_io_start(cord_self()->loop, coio);
 			}
 			/* Yield control to other fibers. */
 			fiber_testcancel();
@@ -357,7 +358,7 @@ coio_write_timeout(struct ev_io *coio, const void *buf, size_t sz,
 				errno = ETIMEDOUT;
 				return sz - towrite;
 			}
-			evio_timeout_update(start, &delay);
+			evio_timeout_update(cord_self()->loop, start, &delay);
 		}
 	}
 }
@@ -391,7 +392,7 @@ coio_writev(struct ev_io *coio, struct iovec *iov, int iovcnt,
 
 	{
 		auto scoped_guard = make_scoped_guard([=] {
-				ev_io_stop(coio);
+				ev_io_stop(cord_self()->loop, coio);
 		});
 
 		/* Avoid a syscall in case of 0 iovcnt. */
@@ -416,7 +417,7 @@ coio_writev(struct ev_io *coio, struct iovec *iov, int iovcnt,
 			}
 			if (! ev_is_active(coio)) {
 				ev_io_set(coio, coio->fd, EV_WRITE);
-				ev_io_start(coio);
+				ev_io_start(cord_self()->loop, coio);
 			}
 			/* Yield control to other fibers. */
 			coio_fiber_yield(coio);
@@ -439,11 +440,11 @@ coio_sendto_timeout(struct ev_io *coio, const void *buf, size_t sz, int flags,
 		    ev_tstamp timeout)
 {
 	ev_tstamp start, delay;
-	evio_timeout_init(&start, &delay, timeout);
+	evio_timeout_init(cord_self()->loop, &start, &delay, timeout);
 
 	{
 		auto scoped_guard = make_scoped_guard([=] {
-				ev_io_stop(coio);
+				ev_io_stop(cord_self()->loop, coio);
 		});
 
 		while (true) {
@@ -457,7 +458,7 @@ coio_sendto_timeout(struct ev_io *coio, const void *buf, size_t sz, int flags,
 				return nwr;
 			if (! ev_is_active(coio)) {
 				ev_io_set(coio, coio->fd, EV_WRITE);
-				ev_io_start(coio);
+				ev_io_start(cord_self()->loop, coio);
 			}
 			/*
 			 * Yield control to other fibers until
@@ -471,7 +472,7 @@ coio_sendto_timeout(struct ev_io *coio, const void *buf, size_t sz, int flags,
 				errno = ETIMEDOUT;
 				return 0;
 			}
-			evio_timeout_update(start, &delay);
+			evio_timeout_update(cord_self()->loop, start, &delay);
 		}
 	}
 }
@@ -489,11 +490,11 @@ coio_recvfrom_timeout(struct ev_io *coio, void *buf, size_t sz, int flags,
 		      ev_tstamp timeout)
 {
 	ev_tstamp start, delay;
-	evio_timeout_init(&start, &delay, timeout);
+	evio_timeout_init(cord_self()->loop, &start, &delay, timeout);
 
 	{
 		auto scoped_guard = make_scoped_guard([=] {
-				ev_io_stop(coio);
+				ev_io_stop(cord_self()->loop, coio);
 		});
 
 		while (true) {
@@ -508,7 +509,7 @@ coio_recvfrom_timeout(struct ev_io *coio, void *buf, size_t sz, int flags,
 
 			if (! ev_is_active(coio)) {
 				ev_io_set(coio, coio->fd, EV_READ);
-				ev_io_start(coio);
+				ev_io_start(cord_self()->loop, coio);
 			}
 			/*
 			 * Yield control to other fibers until
@@ -522,7 +523,7 @@ coio_recvfrom_timeout(struct ev_io *coio, void *buf, size_t sz, int flags,
 				errno = ETIMEDOUT;
 				return 0;
 			}
-			evio_timeout_update(start, &delay);
+			evio_timeout_update(cord_self()->loop, start, &delay);
 		}
 	}
 }
@@ -554,7 +555,7 @@ coio_service_on_accept(struct evio_service *evio_service,
 		f = fiber_new(fiber_name, service->handler);
 	} catch (const Exception& e) {
 		say_error("can't create a handler fiber, dropping client connection");
-		evio_close(&coio);
+		evio_close(cord_self()->loop, &coio);
 		if (iobuf)
 			iobuf_delete(iobuf);
 		throw;
@@ -576,8 +577,8 @@ coio_service_init(struct coio_service *service, const char *name,
 		  const char *host, int port,
 		  void (*handler)(va_list ap), void *handler_param)
 {
-	evio_service_init(&service->evio_service, name, host, port,
-			  coio_service_on_accept, service);
+	evio_service_init(&service->evio_service, cord_self()->loop, name, host,
+			  port, coio_service_on_accept, service);
 	service->handler = handler;
 	service->handler_param = handler_param;
 }

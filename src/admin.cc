@@ -51,7 +51,8 @@ extern "C" {
 #include "scoped_guard.h"
 
 static int
-admin_dispatch(struct ev_io *coio, struct iobuf *iobuf, lua_State *L)
+admin_dispatch(struct ev_io *coio, struct iobuf *iobuf,
+	       lua_State *L)
 {
 	struct ibuf *in = &iobuf->in;
 	struct tbuf *out = tbuf_new(&fiber_self()->gc);
@@ -77,7 +78,7 @@ admin_handler(va_list ap)
 	LuarefGuard coro_guard(tarantool_L);
 
 	auto scoped_guard = make_scoped_guard([&] {
-		evio_close(&coio);
+		evio_close(cord_self()->loop, &coio);
 		iobuf_delete(iobuf);
 		session_destroy(fiber_self()->session);
 	});

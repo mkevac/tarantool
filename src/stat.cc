@@ -28,6 +28,7 @@
  */
 #include "stat.h"
 
+#include "fiber.h"
 #include "trivia/util.h"
 #include <tarantool_ev.h>
 #include <tbuf.h>
@@ -116,7 +117,8 @@ stat_foreach(stat_cb cb, void *cb_ctx)
 }
 
 void
-stat_age(ev_timer *timer, int events __attribute__((unused)))
+stat_age(struct ev_loop *loop, ev_timer *timer,
+	 int events __attribute__((unused)))
 {
 	if (stats == NULL)
 		return;
@@ -130,7 +132,7 @@ stat_age(ev_timer *timer, int events __attribute__((unused)))
 		stats[i].value[0] = 0;
 	}
 
-	ev_timer_again(timer);
+	ev_timer_again(loop, timer);
 }
 
 void
@@ -138,13 +140,13 @@ stat_init(void)
 {
 	ev_init(&timer, stat_age);
 	timer.repeat = 1.;
-	ev_timer_again(&timer);
+	ev_timer_again(cord_self()->loop, &timer);
 }
 
 void
 stat_free(void)
 {
-	ev_timer_stop(&timer);
+	ev_timer_stop(cord_self()->loop, &timer);
 	if (stats)
 		free(stats);
 }

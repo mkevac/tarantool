@@ -29,6 +29,7 @@
 #include "ipc.h"
 #include "fiber.h"
 #include <stdlib.h>
+#include "tarantool.h"
 #include "salad/rlist.h"
 
 struct ipc_channel {
@@ -108,7 +109,7 @@ ipc_channel_get_timeout(struct ipc_channel *ch, ev_tstamp timeout)
 {
 	struct fiber *f;
 	bool first_try = true;
-	ev_tstamp started = ev_now();
+	ev_tstamp started = ev_now(cord_self()->loop);
 	/* channel is empty */
 	while (ch->count == 0) {
 
@@ -136,7 +137,7 @@ ipc_channel_get_timeout(struct ipc_channel *ch, ev_tstamp timeout)
 		fiber_testcancel();
 		fiber_setcancellable(cancellable);
 
-		timeout -= ev_now() - started;
+		timeout -= ev_now(cord_self()->loop) - started;
 		if (timeout <= 0)
 			return NULL;
 	}
@@ -167,7 +168,7 @@ ipc_channel_put_timeout(struct ipc_channel *ch, void *data,
 			ev_tstamp timeout)
 {
 	bool first_try = true;
-	ev_tstamp started = ev_now();
+	ev_tstamp started = ev_now(cord_self()->loop);
 	/* channel is full */
 	while (ch->count >= ch->size) {
 
@@ -186,7 +187,7 @@ ipc_channel_put_timeout(struct ipc_channel *ch, void *data,
 		fiber_testcancel();
 		fiber_setcancellable(cancellable);
 
-		timeout -= ev_now() - started;
+		timeout -= ev_now(cord_self()->loop) - started;
 		if (timeout <= 0) {
 			errno = ETIMEDOUT;
 			return -1;

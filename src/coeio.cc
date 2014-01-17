@@ -65,28 +65,35 @@ struct coeio_manager {
 } coeio_manager;
 
 static void
-coeio_idle_cb(struct ev_idle *w, int events __attribute__((unused)))
+coeio_idle_cb(struct ev_loop *loop, struct ev_idle *w, int revents)
 {
+	(void) revents;
+
 	if (eio_poll() != -1) {
 		/* nothing to do */
-		ev_idle_stop(w);
+		ev_idle_stop(loop, w);
 	}
 }
 
 static void
-coeio_async_cb(struct ev_async *w __attribute__((unused)),
-	       int events __attribute__((unused)))
+coeio_async_cb(struct ev_loop *loop, struct ev_async *w, int revents)
 {
+	(void) w;
+	(void) revents;
+
 	if (eio_poll() == -1) {
 		/* not all tasks are complete. */
-		ev_idle_start(&coeio_manager.coeio_idle);
+		ev_idle_start(loop, &coeio_manager.coeio_idle);
 	}
 }
+
+static struct ev_loop *coeio_loop = NULL;
 
 static void
 coeio_want_poll_cb(void)
 {
-	ev_async_send(&coeio_manager.coeio_async);
+	assert(coeio_loop != NULL);
+	ev_async_send(coeio_loop, &coeio_manager.coeio_async);
 }
 
 /**
@@ -97,12 +104,15 @@ coeio_want_poll_cb(void)
 void
 coeio_init(void)
 {
+	/* coeio can be used only in one event loop */
+	assert(coeio_loop == NULL);
+	coeio_loop = cord_self()->loop;
 	eio_init(coeio_want_poll_cb, NULL);
 
 	ev_idle_init(&coeio_manager.coeio_idle, coeio_idle_cb);
 	ev_async_init(&coeio_manager.coeio_async, coeio_async_cb);
 
-	ev_async_start(&coeio_manager.coeio_async);
+	ev_async_start(cord_self()->loop, &coeio_manager.coeio_async);
 }
 
 /**

@@ -123,8 +123,8 @@ pull_from_remote(va_list ap)
 			fiber_setcancellable(false);
 			err = NULL;
 
-			r->remote->recovery_lag = ev_now() - row->tm;
-			r->remote->recovery_last_update_tstamp = ev_now();
+			r->remote->recovery_lag = ev_now(cord_self()->loop) - row->tm;
+			r->remote->recovery_last_update_tstamp = ev_now(cord_self()->loop);
 
 			remote_apply_row(r, row);
 
@@ -133,7 +133,7 @@ pull_from_remote(va_list ap)
 		} catch (const FiberCancelException& e) {
 			title("replica", "%s/%s", r->remote->source, "failed");
 			iobuf_delete(iobuf);
-			evio_close(&coio);
+			evio_close(cord_self()->loop, &coio);
 			throw;
 		} catch (const Exception& e) {
 			title("replica", "%s/%s", r->remote->source, "failed");
@@ -144,7 +144,7 @@ pull_from_remote(va_list ap)
 				say_info("will retry every %i second", reconnect_delay);
 				warning_said = true;
 			}
-			evio_close(&coio);
+			evio_close(cord_self()->loop, &coio);
 		}
 
 		/* Put fiber_sleep() out of catch block.

@@ -181,6 +181,7 @@ enum { FIBER_CALL_STACK = 16 };
  */
 struct cord {
 	struct fiber *fiber;
+	struct ev_loop *loop;
 	pthread_t thread;
 	uint32_t cid;
 	uint32_t last_used_fid;

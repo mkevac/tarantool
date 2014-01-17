@@ -87,10 +87,10 @@ txn_commit(struct txn *txn)
 	    !space_is_temporary(txn->space)) {
 		int64_t lsn = next_lsn(recovery_state);
 
-		ev_tstamp start = ev_now(), stop;
+		ev_tstamp start = ev_now(cord_self()->loop), stop;
 		int res = wal_write(recovery_state, lsn, fiber_self()->cookie,
 				    txn->op, txn->data, txn->len);
-		stop = ev_now();
+		stop = ev_now(cord_self()->loop);
 
 		if (stop - start > cfg.too_long_threshold) {
 			say_warn("too long %s: %.3f sec",

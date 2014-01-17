@@ -250,8 +250,8 @@ lbox_socket_close(struct lua_State *L)
 		iobuf_delete(s->iob);
 		s->iob = NULL;
 	}
-	ev_io_stop(&s->io_r);
-	evio_close(&s->io_w);
+	ev_io_stop(cord_self()->loop, &s->io_r);
+	evio_close(cord_self()->loop, &s->io_w);
 	s->io_r.fd = s->io_w.fd;
 	assert(s->io_r.fd == -1);
 	mutex_destroy(&s->io_r_mutex);
@@ -317,12 +317,12 @@ lbox_socket_connect(struct lua_State *L)
 
 	/* try to resolve a hostname */
 	ev_tstamp start, delay;
-	evio_timeout_init(&start, &delay, timeout);
+	evio_timeout_init(cord_self()->loop, &start, &delay, timeout);
 	struct addrinfo *ai = coeio_resolve(s->socktype, host, port, delay);
 	if (ai == NULL)
 		return bio_pushsockerror(L, s, errno);
 
-	evio_timeout_update(start, &delay);
+	evio_timeout_update(cord_self()->loop, start, &delay);
 	try {
 		/* connect to a first available host */
 		int r = coio_connect_addrinfo(&s->io_w, ai, delay);
@@ -372,16 +372,15 @@ lbox_socket_send(struct lua_State *L)
 
 	/* acquire write lock */
 	ev_tstamp start, delay;
-	evio_timeout_init(&start, &delay, timeout);
+	evio_timeout_init(cord_self()->loop, &start, &delay, timeout);
 	bool timed_out = mutex_lock_timeout(&s->io_w_mutex, delay);
 	if (timed_out)
 		return bio_pushsenderror(L, s, 0, ETIMEDOUT);
-	evio_timeout_update(start, &delay);
+	evio_timeout_update(cord_self()->loop, start, &delay);
 
 	int rc;
 	try {
-		ssize_t nwr = coio_write_timeout(&s->io_w, buf, buf_size,
-						 delay);
+		ssize_t nwr = coio_write_timeout(&s->io_w, buf, buf_size, delay);
 		if (nwr < buf_size) {
 			rc = bio_pushsenderror(L, s, nwr, ETIMEDOUT);
 			mutex_unlock(&s->io_w_mutex);
@@ -445,17 +444,16 @@ lbox_socket_recv(struct lua_State *L)
 		int rc;
 		/* acquire read lock */
 		ev_tstamp start, delay;
-		evio_timeout_init(&start, &delay, timeout);
+		evio_timeout_init(cord_self()->loop, &start, &delay, timeout);
 		bool timed_out = mutex_lock_timeout(&s->io_r_mutex, delay);
 		if (timed_out)
 			return bio_pushrecverror(L, s, ETIMEDOUT);
-		evio_timeout_update(start, &delay);
+		evio_timeout_update(cord_self()->loop, start, &delay);
 		to_read = sz - ibuf_size(in);
 
 		ssize_t nrd;
 		try {
-			nrd = coio_bread_timeout(&s->io_r, in, to_read,
-						 delay);
+			nrd = coio_bread_timeout(&s->io_r, in, to_read, delay);
 			mutex_unlock(&s->io_r_mutex);
 		} catch (const SocketError& e) {
 			mutex_unlock(&s->io_r_mutex);
@@ -641,11 +639,11 @@ lbox_socket_readline(struct lua_State *L)
 
 	/* acquire read lock */
 	ev_tstamp start, delay;
-	evio_timeout_init(&start, &delay, timeout);
+	evio_timeout_init(cord_self()->loop, &start, &delay, timeout);
 	bool timed_out = mutex_lock_timeout(&s->io_r_mutex, delay);
 	if (timed_out)
 		return bio_pushrecverror(L, s, ETIMEDOUT);
-	evio_timeout_update(start, &delay);
+	evio_timeout_update(cord_self()->loop, start, &delay);
 
 	size_t bottom = 0;
 	int match;
@@ -684,7 +682,7 @@ lbox_socket_readline(struct lua_State *L)
 					mutex_unlock(&s->io_r_mutex);
 					return rc;
 				}
-				evio_timeout_update(start, &delay);
+				evio_timeout_update(cord_self()->loop, start, &delay);
 			}
 
 			match = readline_state_next(rs, rs_size, in->pos[bottom]);
@@ -795,7 +793,7 @@ lbox_socket_accept(struct lua_State *L)
 	struct bio_socket *client = (struct bio_socket *) lua_touserdata(L, -1);
 	try {
 		client->io_w.fd = coio_accept(&s->io_w, (struct sockaddr_in*)&addr,
-					     sizeof(addr), timeout);
+					      sizeof(addr), timeout);
 		client->io_r.fd = client->io_w.fd;
 	} catch (const SocketError& e) {
 		return bio_pusherror(L, s, errno);
@@ -841,7 +839,7 @@ lbox_socket_sendto(struct lua_State *L)
 
 	/* try to resolve a hostname */
 	ev_tstamp start, delay;
-	evio_timeout_init(&start, &delay, timeout);
+	evio_timeout_init(cord_self()->loop, &start, &delay, timeout);
 
 	struct sockaddr_storage ss;
 	assert(sizeof(ss) > sizeof(struct sockaddr_in6));
@@ -850,12 +848,12 @@ lbox_socket_sendto(struct lua_State *L)
 	socklen_t addrlen;
 
 	if (evio_pton(host, port, &ss, &addrlen) == -1) {
-		evio_timeout_init(&start, &delay, timeout);
+		evio_timeout_init(cord_self()->loop, &start, &delay, timeout);
 		/* try to resolve a hostname */
 		struct addrinfo *a = coeio_resolve(s->socktype, host, port, delay);
 		if (a == NULL)
 			return bio_pushsenderror(L, s, 0, errno);
-		evio_timeout_update(start, &delay);
+		evio_timeout_update(cord_self()->loop, start, &delay);
 		addr = (struct sockaddr *) a->ai_addr;
 		addrlen = a->ai_addrlen;
 	}

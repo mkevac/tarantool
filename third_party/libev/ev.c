@@ -1308,8 +1308,11 @@ typedef struct
   #include "ev_wrap.h"
 
   static struct ev_loop default_loop_struct;
-  EV_API_DECL struct ev_loop *ev_default_loop_ptr = 0; /* needs to be initialised to make it a definition despite extern */
-
+  #ifdef EV_API_STATIC
+     static struct ev_loop *ev_default_loop_ptr = 0;
+  #else
+     struct ev_loop *ev_default_loop_ptr = 0;
+  #endif
 #else
 
 #ifdef EV_API_STATIC

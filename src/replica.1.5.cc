@@ -116,8 +116,8 @@ pull_from_remote_1_5(va_list ap)
 			fiber_setcancellable(false);
 			err = NULL;
 
-			r->remote->recovery_lag = ev_now() - row->tm;
-			r->remote->recovery_last_update_tstamp = ev_now();
+			r->remote->recovery_lag = ev_now(cord_self()->loop) - row->tm;
+			r->remote->recovery_last_update_tstamp = ev_now(cord_self()->loop);
 
 			remote_apply_row_1_5(r, row);
 
@@ -125,7 +125,7 @@ pull_from_remote_1_5(va_list ap)
 			fiber_gc();
 		} catch (const FiberCancelException& e) {
 			iobuf_delete(iobuf);
-			evio_close(&coio);
+			evio_close(cord_self()->loop, &coio);
 			throw;
 		} catch (const Exception& e) {
 			e.log();
@@ -135,7 +135,7 @@ pull_from_remote_1_5(va_list ap)
 				say_info("will retry every %i second", reconnect_delay);
 				warning_said = true;
 			}
-			evio_close(&coio);
+			evio_close(cord_self()->loop, &coio);
 			fiber_sleep(reconnect_delay);
 		}
 	}

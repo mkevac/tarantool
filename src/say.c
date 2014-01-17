@@ -181,20 +181,20 @@ vsay(int level, const char *filename, int line, const char *error, const char *f
 		return;
 	}
 
-	ev_now_update();
+	ev_now_update(cord_self()->loop);
 
 	for (f = filename; *f; f++)
 		if (*f == '/' && *(f + 1) != '\0')
 			filename = f + 1;
 
-	time_t now = (time_t) ev_now();
+	time_t now = (time_t) ev_now(cord_self()->loop);
 	struct tm tm;
 	localtime_r(&now, &tm);
 
 	/* Print time in format 2012-08-07 18:30:00.634 */
 	p += strftime(buf + p, len - p, "%F %H:%M", &tm);
 	p += snprintf(buf + p, len - p, ":%06.3f",
-		      ev_now() - now + tm.tm_sec);
+		      ev_now(cord_self()->loop) - now + tm.tm_sec);
 
 	uint32_t fid = 1;
 	const char *fname = "sched";
