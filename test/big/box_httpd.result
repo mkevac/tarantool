@@ -163,6 +163,10 @@ lua dump(box.http.request("GET", "http://mail.ru/").status)
 ---
  - '200'
 ...
+lua dump(box.http.get("http://mail.ru/").status)
+---
+ - '200'
+...
 lua tonumber(box.http.request("GET", "http://mail.ru/").headers["content-length"]) > 0
 ---
  - true
@@ -503,6 +507,13 @@ lua type(httpd:route({method = 'GET', path = '/dit', file = 'helper.html.el'}, f
  - table
 ...
 lua res = box.http.request('POST', 'http://127.0.0.1:12345/dit', 'test')
+---
+...
+lua res.body == 'POST = test'
+---
+ - true
+...
+lua res = box.http.post('http://127.0.0.1:12345/dit', 'test')
 ---
 ...
 lua res.body == 'POST = test'

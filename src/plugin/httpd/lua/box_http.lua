@@ -37,6 +37,16 @@
 
 
     box.http = {
+        -- GET
+        get = function(url, opts)
+            return box.http.request('GET', url, '', opts)
+        end,
+
+        -- POST
+        post = function(url, body, opts)
+            return box.http.request('POST', url, body, opts)
+        end,
+
         request = function(method, url, body, opts)
             if opts == nil then
                 opts = {}

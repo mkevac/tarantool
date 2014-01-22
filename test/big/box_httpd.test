@@ -37,6 +37,7 @@ exec admin 'lua dump(box.http.parse_response("HTTP/1.0 200 Ok\\nHost: s.com\\r\\
 
 
 exec admin 'lua dump(box.http.request("GET", "http://mail.ru/").status)'
+exec admin 'lua dump(box.http.get("http://mail.ru/").status)'
 exec admin 'lua tonumber(box.http.request("GET", "http://mail.ru/").headers["content-length"]) > 0'
 exec admin 'lua box.http.request("GET", "http://mail.ru/").proto[1]'
 exec admin 'lua dump(box.http.request("GET", "http://localhost:88/"))'
@@ -166,6 +167,9 @@ exec admin "lua type(httpd:route({method = 'GET', path = '/dit', file = 'helper.
 
 
 exec admin "lua res = box.http.request('POST', 'http://127.0.0.1:12345/dit', 'test')"
+exec admin "lua res.body == 'POST = test'"
+
+exec admin "lua res = box.http.post('http://127.0.0.1:12345/dit', 'test')"
 exec admin "lua res.body == 'POST = test'"
 
 exec admin "lua res = box.http.request('GET', 'http://127.0.0.1:12345/dit')"
