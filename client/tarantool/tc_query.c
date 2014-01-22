@@ -53,6 +53,7 @@ char *tc_query_type(uint32_t type) {
 	case TNT_OP_PING:   return "Ping";
 	case TNT_OP_INSERT: return "Insert";
 	case TNT_OP_DELETE: return "Delete";
+	case TNT_OP_DELETE_1_3: return "Delete_1_3";
 	case TNT_OP_UPDATE: return "Update";
 	case TNT_OP_SELECT: return "Select";
 	case TNT_OP_CALL:   return "Call";
@@ -60,7 +61,7 @@ char *tc_query_type(uint32_t type) {
 	return "Unknown";
 }
 
-static char *tc_query_op(struct tnt_reply *r) {
+char *tc_query_op(struct tnt_reply *r) {
 	return tc_query_type(r->op);
 }
 
@@ -73,7 +74,7 @@ int tc_query_printer(struct tnt_reply *r, void *ptr, char **e) {
 	return 0;
 }
 
-static char *tc_query_error(char *fmt, ...) {
+char *tc_query_error(char *fmt, ...) {
 	char msg[256];
 	va_list args;
 	va_start(args, fmt);

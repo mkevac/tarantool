@@ -36,7 +36,13 @@
 /**
  * Instantiate sptree definitions
  */
+#ifdef NDEBUG
 SPTREE_DEF(index, realloc);
+#else
+void *
+realloc_inject(void *ptr, size_t size);
+SPTREE_DEF(index, realloc_inject);
+#endif
 
 class TreeIndex: public Index {
 public:
@@ -56,6 +62,7 @@ public:
 				      struct tuple *new_tuple,
 				      enum dup_replace_mode mode);
 
+	virtual size_t memsize() const;
 	virtual struct iterator *allocIterator() const;
 	virtual void initIterator(struct iterator *iterator,
 				  enum iterator_type type,

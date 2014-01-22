@@ -47,6 +47,9 @@
 
 extern int snapshot_pid;
 
+
+static bool private_arena = false;
+
 #ifdef SLAB_DEBUG
 #undef NDEBUG
 uint8_t red_zone[4] = { 0xfa, 0xfa, 0xfa, 0xfa };
@@ -72,6 +75,8 @@ struct slab {
 	uint32_t magic;
 	size_t used;
 	size_t items;
+	size_t used_real;
+	size_t alloc_real;
 	struct item_slist_head free;
 	struct slab_cache *cache;
 	void *brk;
@@ -152,8 +157,16 @@ arena_init(struct arena *arena, size_t size)
 	arena->size = size - size % SLAB_SIZE;
 	arena->mmap_size = size - size % SLAB_SIZE + SLAB_SIZE;	/* spend SLAB_SIZE bytes on align :-( */
 
+	int flags = MAP_SHARED | MAP_ANONYMOUS;
+	if (access("/proc/user_beancounters", F_OK) == 0) {
+		say_warn("Disable shared arena since running under OpenVZ "
+		    "(https://bugzilla.openvz.org/show_bug.cgi?id=2805)");
+		flags = MAP_PRIVATE | MAP_ANONYMOUS;
+		private_arena = true;
+        }
+
 	arena->mmap_base = mmap(NULL, arena->mmap_size,
-				PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+				PROT_READ | PROT_WRITE, flags, -1, 0);
 	if (arena->mmap_base == MAP_FAILED) {
 		say_syserror("mmap");
 		return false;
@@ -343,8 +356,11 @@ sfree_delayed(void *ptr)
 {
 	if (ptr == NULL)
 		return;
+	if (private_arena)
+		return sfree(ptr);
 	struct slab_item *item = (struct slab_item *)ptr;
 	struct slab *slab = slab_header(item);
+	(void) slab;
 	assert(valid_item(slab, item));
 	SLIST_INSERT_HEAD(&free_delayed, item, next);
 	arena.delayed_free_count++;
@@ -382,6 +398,8 @@ salloc(size_t size, const char *what)
 	if (fully_formatted(slab) && SLIST_EMPTY(&slab->free))
 		TAILQ_REMOVE(&cache->free_slabs, slab, cache_free_link);
 
+	slab->used_real += size + sizeof(red_zone);
+	slab->alloc_real += cache->item_size + sizeof(red_zone);
 	slab->used += cache->item_size + sizeof(red_zone);
 	slab->items += 1;
 
@@ -461,6 +479,8 @@ salloc_stat(salloc_stat_cb cb, struct slab_arena_stats *astat, void *cb_ctx)
 				st.bytes_free -= sizeof(struct slab);
 				st.bytes_used += sizeof(struct slab);
 				st.bytes_used += slab->used;
+				st.bytes_alloc_real += slab->alloc_real + sizeof(struct slab);
+				st.bytes_used_real += slab->used_real + sizeof(struct slab);
 			}
 			st.item_size = slab_caches[i].item_size;
 
