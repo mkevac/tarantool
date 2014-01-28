@@ -780,7 +780,7 @@ struct wal_writer
 {
 	struct wal_fifo input;
 	struct wal_fifo commit;
-	pthread_t thread;
+	struct cord cord;
 	pthread_mutex_t mutex;
 	pthread_cond_t cond;
 	ev_async write_event;
@@ -957,7 +957,7 @@ wal_writer_start(struct recovery_state *r)
 
 	/* II. Start the thread. */
 
-	if (tt_pthread_create(&wal_writer.thread, NULL, wal_writer_thread, r)) {
+	if (cord_create(&wal_writer.cord, "walwriter", wal_writer_thread, r)) {
 		wal_writer_destroy(&wal_writer);
 		r->writer = NULL;
 		return -1;
@@ -978,7 +978,7 @@ wal_writer_stop(struct recovery_state *r)
 	(void) tt_pthread_cond_signal(&writer->cond);
 	(void) tt_pthread_mutex_unlock(&writer->mutex);
 
-	if (tt_pthread_join(writer->thread, NULL) != 0) {
+	if (cord_join(&writer->cord, NULL) != 0) {
 		/* We can't recover from this in any reasonable way. */
 		panic_syserror("WAL writer: thread join failed");
 	}

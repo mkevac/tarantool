@@ -564,7 +564,7 @@ tarantool_free(void)
 	destroy_tarantool_cfg(&cfg);
 
 	session_free();
-	cord_destroy();
+	cord_destroy(&main_cord);
 	memory_free();
 	ev_default_destroy();
 #ifdef ENABLE_GCOV

@@ -33,7 +33,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <unistd.h>
-#include <pthread.h>
+#include "tt_pthread.h"
 #include "third_party/tarantool_ev.h"
 #include "coro.h"
 #include "trivia/util.h"
@@ -196,9 +196,11 @@ struct cord {
 	struct slab_cache slabc;
 	char name[REGION_NAME_MAX];
 
-	/* used by cord_create */
+	/* used during initialization */
 	void *(*start_routine) (void *);
 	void *arg;
+	pthread_cond_t cond;
+	pthread_mutex_t mutex;
 };
 
 extern __thread struct cord *cord_self_ptr;
@@ -220,6 +222,9 @@ cord_create(struct cord *cord, const char *name,
 	    void *(*start_routine) (void *), void *arg);
 
 void
-cord_destroy(void);
+cord_destroy(struct cord *cord);
+
+int
+cord_join(struct cord *cord, void **retval);
 
 #endif /* TARANTOOL_FIBER_H_INCLUDED */

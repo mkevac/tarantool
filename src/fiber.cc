@@ -434,9 +434,6 @@ fiber_new(const char *name, void (*f) (va_list))
 
 	fiber->f = f;
 
-	/* fids from 0 to 100 are reserved */
-	if (++cord_self()->last_used_fid < 100)
-		cord_self()->last_used_fid = 100;
 	fiber->fid = cord_self()->last_used_fid;
 	fiber->session = NULL;
 	fiber->flags = 0;
@@ -476,13 +473,6 @@ fiber_destroy_all()
 		fiber_destroy(f);
 }
 
-void
-cord_exit(void *retval)
-{
-	cord_destroy();
-	pthread_exit(retval);
-}
-
 static void *
 cord_thread(void *arg)
 {
@@ -491,8 +481,14 @@ cord_thread(void *arg)
 	/* set thread-local variable */
 	cord_self_ptr = cord;
 
+	(void) tt_pthread_mutex_lock(&cord->mutex);
+
+	ev_async_start(&cord->ready_async);
+
+	(void) tt_pthread_cond_signal(&cord->cond);
+	(void) tt_pthread_mutex_unlock(&cord->mutex);
+
 	void *retval = cord->start_routine(cord->arg);
-	cord_destroy();
 	return retval;
 }
 
@@ -516,10 +512,9 @@ cord_create(struct cord *cord, const char *name,
 
 	cord->sp = cord->call_stack;
 	cord->fiber = &cord->sched;
+	/* fids from 0 to 100 are reserved */
 	cord->last_used_fid = 100;
-
 	ev_async_init(&cord->ready_async, fiber_ready_async);
-	ev_async_start(&cord->ready_async);
 
 	snprintf(cord->name, sizeof(cord->name), "%s", name);
 	cord->cid = ++last_used_cid;
@@ -527,25 +522,60 @@ cord_create(struct cord *cord, const char *name,
 		assert(cord_self_ptr == NULL);
 		cord->thread = pthread_self();
 		cord_self_ptr = cord;
+		ev_async_start(&cord->ready_async);
 		return 0;
 	}
 
 	cord->start_routine = start_routine;
 	cord->arg = arg;
 
-	return pthread_create(&cord->thread, NULL, cord_thread, cord);
+	tt_pthread_mutex_init(&cord->mutex, 0);
+	(void) tt_pthread_mutex_lock(&cord->mutex);
+	if (tt_pthread_create(&cord->thread, NULL, cord_thread, cord) != 0)
+		goto error;
+
+	/* Synchronously wait until thread starts */
+	tt_pthread_cond_init(&cord->cond, 0);
+	while (!ev_is_active(&cord->ready_async)) {
+		(void) tt_pthread_cond_wait(&cord->cond, &cord->mutex);
+	}
+	(void) tt_pthread_mutex_unlock(&cord->mutex);
+	(void) tt_pthread_cond_destroy(&cord->cond);
+	(void) tt_pthread_mutex_destroy(&cord->mutex);
+
+	return 0;
+error:
+	(void) tt_pthread_mutex_unlock(&cord->mutex);
+	(void) tt_pthread_mutex_destroy(&cord->mutex);
+	cord_destroy(cord);
+	return -1;
 }
 
 void
-cord_destroy(void)
+cord_destroy(struct cord *cord)
 {
-	ev_async_stop(&cord_self()->ready_async);
+	if (ev_is_active(&cord->ready_async))
+		ev_async_stop(&cord->ready_async);
+
 	/* Only clean up if initialized. */
-	if (cord_self()->fiber_registry) {
+	if (cord->fiber_registry) {
 		fiber_destroy_all();
-		mh_i32ptr_delete(cord_self()->fiber_registry);
+		mh_i32ptr_delete(cord->fiber_registry);
 	}
-	slab_cache_destroy(&cord_self()->slabc);
+
+	mempool_destroy(&cord->fiber_pool);
+	slab_cache_destroy(&cord->slabc);
+}
+
+int
+cord_join(struct cord *cord, void **retval)
+{
+	if (tt_pthread_join(cord->thread, retval) != 0) {
+		return -1;
+	}
+
+	cord_destroy(cord);
+	return 0;
 }
 
 int fiber_stat(fiber_stat_cb cb, void *cb_ctx)
