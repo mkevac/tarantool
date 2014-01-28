@@ -1,0 +1,62 @@
+print('eselect')
+---
+...
+s = box.schema.create_space('eselect', { temporary = true })
+---
+...
+index = s:create_index('primary', { type = 'tree' })
+---
+...
+for i = 1, 1000 do s:insert({ i, 1, 2, 3 }) end
+---
+...
+s.index[0]:eselect(1)
+---
+- [1, 1, 2, 3]
+...
+s.index[0]:eselect(1, { iterator = box.index.EQ })
+---
+- [1, 1, 2, 3]
+...
+s.index[0]:eselect(1, { iterator = 'EQ' })
+---
+- [1, 1, 2, 3]
+...
+s.index[0]:eselect(1, { iterator = 'GE' })
+---
+- error: '[string "-- schema.lua (internal file)..."]:248: More than one tuple found
+    without ''limit'''
+...
+s.index[0]:eselect(1, { iterator = 'GE', limit = 2 })
+---
+- - [1, 1, 2, 3]
+  - [2, 1, 2, 3]
+...
+s.index[0]:eselect(1, { iterator = 'LE', limit = 2 })
+---
+- - [1, 1, 2, 3]
+...
+s.index[0]:eselect(1, { iterator = 'GE', offset = 10, limit = 2 })
+---
+- - [11, 1, 2, 3]
+  - [12, 1, 2, 3]
+...
+s.index[0]:eselect(1, { iterator = 'GE', grep = function(t) if math.fmod(t[0], 2) == 0 then return true end end, limit = 2 })
+---
+- - [2, 1, 2, 3]
+  - [4, 1, 2, 3]
+...
+s.index[0]:eselect(1, { iterator = 'GE', grep = function(t) if math.fmod(t[0], 2) == 0 then return true end end, limit = 2, offset = 1 })
+---
+- - [4, 1, 2, 3]
+  - [6, 1, 2, 3]
+...
+s.index[0]:eselect(1, { iterator = 'GE', grep = function(t) if math.fmod(t[0], 2) == 0 then return true end end, limit = 2, offset = 1, map = function(t) return { t[0] } end })
+---
+- - - 4
+  - - 6
+...
+s:eselect(2)
+---
+- [2, 1, 2, 3]
+...

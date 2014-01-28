@@ -193,6 +193,72 @@ function box.schema.space.bless(space)
     index_mt.count = function(index, ...)
         return index.idx:count(...)
     end
+
+    --
+    index_mt.eselect = function(index, key, opts)
+        if opts == nil then
+            opts = {}
+        end
+
+        local iterator = opts.iterator
+
+        if type(key) ~= 'table' then
+            key = { key }
+        end
+
+        if iterator == nil then
+            iterator = box.index.EQ
+        end
+        if type(iterator) == 'string' then
+            if box.index[ iterator ] == nil then
+                error(string.format("Wrong iterator: %s", tostring(iterator)))
+            end
+            iterator = box.index[ iterator ]
+        end
+
+        local result = {}
+        local offset = 0
+        local skip = 0
+        local count = 0
+        if opts.offset ~= nil then
+            offset = tonumber(opts.offset)
+        end
+        local limit = opts.limit
+        local grep = opts.grep
+        local map = opts.map
+
+        if limit == 0 then
+            return result
+        end
+
+        for tuple in index:iterator(iterator, unpack(key)) do
+            if grep == nil or grep(tuple) then
+                if skip < offset then
+                    skip = skip + 1
+                else
+                    if map == nil then
+                        table.insert(result, tuple)
+                    else
+                        table.insert(result, map(tuple))
+                    end
+                    count = count + 1
+
+                    if limit == nil then
+                        if count > 1 then
+                            error("More than one tuple found without 'limit'")
+                        end
+                    elseif count >= limit then
+                        break
+                    end
+                end
+            end
+        end
+        if limit == nil then
+            return unpack(result)
+        end
+        return result
+    end
+
     --
     index_mt.select_range = function(index, limit, ...)
         local range = {}
@@ -239,6 +305,11 @@ function box.schema.space.bless(space)
     local space_mt = {}
     space_mt.len = function(space) return space.index[0]:len() end
     space_mt.__newindex = index_mt.__newindex
+
+    space_mt.eselect = function(space, key, opts)
+        return space.index[0]:eselect(key, opts)
+    end
+
     space_mt.select = function(space, key)
         return box.process(box.net.box.SELECT,
                 msgpack.encode({
