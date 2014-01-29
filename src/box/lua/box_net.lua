@@ -91,20 +91,20 @@ box.net = {
             return self:process(box.net.box.PING, '')
         end,
 
-        call    = function(self, name, tuple)
+        call    = function(self, name, ...)
             assert(type(name) == 'string')
             return self:process(box.net.box.CALL,
                 msgpack.encode({
                     [box.net.box.FUNCTION_NAME] = name,
-                    [box.net.box.TUPLE] = keify(tuple)}))
+                    [box.net.box.TUPLE] = {...}}))
         end,
 
         select_range = function(self, sno, ino, limit, key)
-            return self:call('box.select_range', {sno, ino, limit, key})
+            return self:call('box.select_range', sno, ino, limit, key)
         end,
 
         select_reverse_range = function(self, sno, ino, limit, key)
-            return self:call('box.select_reverse_range', {sno, ino, limit, key})
+            return self:call('box.select_reverse_range', sno, ino, limit, key)
         end,
 
         -- To make use of timeouts safe across multiple
@@ -154,12 +154,12 @@ box.net = {
 
         -- for compatibility with the networked version,
         -- implement call
-        call = function(self, proc_name, tuple) 
+        call = function(self, proc_name, ...) 
             local proc = { box.call_loadproc(proc_name) }
             if #proc == 2 then
-                return proc[1](proc[2], tuple)
+                return proc[1](proc[2], ...)
             else
-                return proc[1](tuple)
+                return proc[1](...)
             end
         end,
 
@@ -397,6 +397,9 @@ box.net.box.new = function(host, port, reconnect_timeout)
                 end
             end
         end,
+
+
+
 
         close = function(self)
             if self.closed then
