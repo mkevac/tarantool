@@ -20,3 +20,5 @@ s.index[0]:eselect(1, { iterator = 'GE', grep = function(t) if math.fmod(t[0], 2
 
 
 s:eselect(2)
+
+s:drop()
