@@ -55,7 +55,7 @@ if(NOT DEFINED CMAKE_INSTALL_LIBDIR)
   set(CMAKE_INSTALL_LIBDIR lib)
 endif(NOT DEFINED CMAKE_INSTALL_LIBDIR)
 
-set(PLUGIN_DIR "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/tarantool/plugins")
+set(MODULE_DIR "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/tarantool/modules")
 
 include(cmake/utils.cmake)
 
@@ -166,12 +166,8 @@ endif()
 #
 # Specify Tarantool modules Lua prefixes
 #
-if (NOT DEFINED LUA_LIBPATH)
-    set (LUA_LIBPATH "")
-endif()
-if (NOT DEFINED LUA_LIBCPATH)
-    set (LUA_LIBCPATH "")
-endif()
+set (LUA_LIBPATH  "${LUA_LIBPATH};${MODULE_DIR}/?.lua")
+set (LUA_LIBCPATH "${LUA_LIBCPATH};${MODULE_DIR}/?.so")
 
 #
 # Now handle all configuration options.
